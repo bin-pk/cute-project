@@ -1,0 +1,21 @@
+[package]
+name = "cute-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+description.workspace = true
+build = "build.rs"
+
+[dependencies]
+tokio.workspace = true
+tokio-stream.workspace = true
+async-trait.workspace = true
+async-stream.workspace = true
+serde.workspace = true
+bincode = {version = "1.3.3"}
+log.workspace = true
+log4rs.workspace = true
+chrono.workspace = true

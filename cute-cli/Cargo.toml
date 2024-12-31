@@ -1,0 +1,19 @@
+[package]
+name = "cute-cli"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+description.workspace = true
+
+[dependencies]
+cute-core.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+
+[[bin]]
+name = "cute-main"
+path = "src/bin/cute_main.rs"
