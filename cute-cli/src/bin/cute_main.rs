@@ -1,34 +1,43 @@
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use cute_core::Task;
+use serde::{Deserialize, Serialize};
+use tokio_stream::StreamExt;
+use cute_core::{bin_deserialize, BasicWorker, Task, Worker};
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let ctx = Arc::new(tokio::sync::RwLock::new(TestContext::default()));
-    let mut task = EchoTask::new(None)?;
-    let mut count = 0;
-    loop {
-        if count > 10 {
-            break;
+    let worker = BasicWorker::<TestContext,EchoTask>::new();
+    let mut count = 1;
+    let mut stream = worker.iter_execute(ctx, None).await?;
+
+    while let Some(result) = stream.next().await {
+        if count >= 10 {
+            let _ = worker.iter_close().await;
         }
-        let output = task.execute(ctx.clone()).await?;
-        println!("output : {:?}", output);
+        match result {
+            Ok(output) => {
+                let convert_result = bin_deserialize::<EchoData>(&*output);
+                println!("{:?}", convert_result);
+            }
+            Err(e) => {
+                println!("Error: {:?}", e);
+            }
+        }
         count += 1;
     }
-    task.destroy().await;
-    println!("string count : {}", Arc::strong_count(&ctx));
+
     Ok(())
 }
 
 #[derive(Clone,Copy,Debug,Default)]
-struct TestContext {
+pub struct TestContext {
     test : i32,
 }
 
-struct EchoTask;
+pub struct EchoTask;
 
-#[derive(serde::Serialize,serde::Deserialize,Debug,Copy, Clone)]
-struct EchoData {
+#[derive(Serialize, Deserialize,Debug,Copy, Clone)]
+pub struct EchoData {
     data : i32
 }
 
@@ -36,14 +45,14 @@ struct EchoData {
 impl Task<TestContext> for EchoTask {
     type Output = EchoData;
 
-    fn new(input: Option<Box<[u8]>>) -> Result<Box<Self>, std::io::Error>
+    fn new(_input: Option<Box<[u8]>>) -> Result<Box<Self>, std::io::Error>
     where
         Self: Sized
     {
         Ok(Box::new(Self {}))
     }
 
-    async fn execute(&mut self, ctx: Arc<RwLock<TestContext>>) -> Result<Self::Output, std::io::Error> {
+    async fn execute(&mut self, ctx: Arc<tokio::sync::RwLock<TestContext>>) -> Result<Self::Output, std::io::Error> {
         let mut writer = ctx.write().await;
         writer.test += 1;
         drop(writer);
@@ -52,7 +61,6 @@ impl Task<TestContext> for EchoTask {
         let echo = EchoData { data : reader.test };
         drop(reader);
 
-        println!("string count : {}", Arc::strong_count(&ctx));
         Ok(echo)
     }
 
