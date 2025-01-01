@@ -1,5 +1,5 @@
 [package]
-name = "cute-cli"
+name = "cute-network"
 edition.workspace = true
 version.workspace = true
 rust-version.workspace = true
@@ -7,16 +7,15 @@ authors.workspace = true
 repository.workspace = true
 license.workspace = true
 description.workspace = true
+build = "build.rs"
 
 [dependencies]
 cute-core.workspace = true
-cute-network.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
-async-stream.workspace = true
 async-trait.workspace = true
-serde.workspace = true
+prost = {version = "0.12"}
+tonic = {version = "0.10"}
 
-[[bin]]
-name = "cute-main"
-path = "src/bin/cute_main.rs"
+[build-dependencies]
+tonic-build = "0.10"

@@ -1,46 +1,48 @@
-use std::io::Error;
 use std::sync::Arc;
 use tokio::sync::{watch, RwLock};
 use std::marker::PhantomData;
 use async_stream::stream;
-use crate::{bin_serialize, DataStream, Task, Worker};
+use crate::{bin_serialize, DataStream, Task, TaskConstructor, Worker};
+use crate::errors::{CuteError, CuteErrorCode};
 
-pub struct BasicWorker<C,T> {
+pub struct BasicWorker<TC,T,C> {
+    constructor : TC,
     stop_signal : watch::Sender<bool>,
     _phantom_t: PhantomData<T>,
     _phantom_c: PhantomData<fn() -> C>,
 }
 
-impl<C,T> BasicWorker<C,T>
-where T : Task<C> + Sync + Sync,
-      C : Send + Sync + 'static,
+impl<TC,T,C> BasicWorker<TC,T,C>
+where TC : TaskConstructor<T,C>,
+    T : Task<C> + Send + Sync,
+    C : Send + Sync + 'static,
 {
-    pub fn new() -> Self {
+    pub fn new(constructor : TC) -> Self {
         let (stop_signal, _) = watch::channel(false);
         Self {
+            constructor,
+            stop_signal,
             _phantom_t: Default::default(),
             _phantom_c: Default::default(),
-            stop_signal,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl<C,T> Worker<C> for BasicWorker<C,T>
-    where T : Task<C> + Sync + Sync + 'static,
-        C : Send + Sync + 'static,
+impl<TC,T,C> Worker<C> for BasicWorker<TC,T,C>
+where TC : TaskConstructor<T,C> + Send + Sync,
+      T : Task<C> + Send + Sync + 'static,
+      C : Send + Sync + 'static,
 {
-    type Output = T;
-
-    async fn one_of_execute(&self, ctx: Arc<RwLock<C>>, input: Option<Box<[u8]>>) -> Result<Vec<u8>, Error> {
-        let mut task = T::new(input)?;
+    async fn one_of_execute(&self, ctx: Arc<RwLock<C>>, input: Option<Box<[u8]>>) -> Result<Vec<u8>, CuteError> {
+        let mut task = self.constructor.create(input)?;
         let output = task.execute(ctx).await?;
         task.destroy().await;
         bin_serialize(&output)
     }
 
-    async fn iter_execute(&self, ctx: Arc<RwLock<C>>, input: Option<Box<[u8]>>) -> Result<DataStream<Vec<u8>>, Error> {
-        let mut task = T::new(input)?;
+    async fn iter_execute(&self, ctx: Arc<RwLock<C>>, input: Option<Box<[u8]>>) -> Result<DataStream<Vec<u8>>, CuteError> {
+        let mut task = self.constructor.create(input)?;
         let stop_rx = self.stop_signal.subscribe();
         Ok(Box::pin(stream! {
             let mut is_closed = false;
@@ -63,12 +65,12 @@ impl<C,T> Worker<C> for BasicWorker<C,T>
                             }
                         }
                         Err(e) => {
-                            match e.kind() {
-                                std::io::ErrorKind::WouldBlock => {
+                            match e.code {
+                                CuteErrorCode::Ok => {
                                     continue;
                                 }
                                 _ => {
-                                    is_closed = true;
+                                    break
                                 }
                             }
                         }

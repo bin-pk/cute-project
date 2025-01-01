@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package cute;
+
+message Empty{}
+
+message Protocols {
+  repeated string name = 1;
+}
+
+message Input{
+  string name = 1;
+  optional bytes data = 2;
+}
+
+message Output{
+  string name = 1;
+  uint32 pageSize = 2;
+  uint32 pageIdx = 3;
+  bytes data = 4;
+}
+
+service CuteService {
+  rpc GetServicesName(Empty) returns (Protocols) {}
+  rpc ServerUnary(Input) returns (stream Output) {}
+  rpc ServerStream(Input) returns (stream Output) {}
+  rpc ServerStreamClose(Input) returns (Empty) {}
+  rpc ServerStreamAllClose(Empty) returns (Empty) {}
+}

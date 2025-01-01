@@ -1,29 +1,40 @@
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tokio_stream::StreamExt;
-use cute_core::{bin_deserialize, BasicWorker, Task, Worker};
+use cute_core::{bin_deserialize, BasicTaskConstructor, BasicWorker, CuteError, ProcManager, Task, Worker};
 
 #[tokio::main]
-async fn main() -> Result<(), std::io::Error> {
-    let ctx = Arc::new(tokio::sync::RwLock::new(TestContext::default()));
-    let worker = BasicWorker::<TestContext,EchoTask>::new();
-    let mut count = 1;
-    let mut stream = worker.iter_execute(ctx, None).await?;
+async fn main() -> Result<(), CuteError> {
 
-    while let Some(result) = stream.next().await {
-        if count >= 10 {
-            let _ = worker.iter_close().await;
+    tokio::spawn(async move {
+        let mut proc_map = ProcManager::new();
+
+        proc_map.insert("echo".into(), Box::new(BasicWorker::new(BasicTaskConstructor::<EchoTask,TestContext>::new())));
+        match cute_network::Server::create_grpc(cute_network::NetworkConfig::default()).start_server(Box::new(proc_map)).await {
+            Ok(_) => {}
+            Err(_) => {}
         }
-        match result {
-            Ok(output) => {
-                let convert_result = bin_deserialize::<EchoData>(&*output);
-                println!("{:?}", convert_result);
-            }
-            Err(e) => {
-                println!("Error: {:?}", e);
+    });
+
+    let mut client = cute_network::Client::<TestContext>::create_grpc(cute_network::NetworkConfig {
+        max_page_byte_size: 65536,
+        max_channel_size: 128,
+        request_limit_milli_second : 262_144,
+        host_address:  std::net::SocketAddr::from(([127,0,0,1], 7777)),
+        time_out: 30,
+        keep_alive_time_out: 60,
+    }).await.unwrap();
+
+    match client.get_stream("echo".into(),None).await {
+        Ok(mut stream) => {
+            while let Some(res_output) = stream.next().await {
+                if let Ok(output) = res_output {
+                    let convert_result = bin_deserialize::<EchoData>(&*output);
+                    println!("{:?}", convert_result);
+                }
             }
         }
-        count += 1;
+        Err(_) => {}
     }
 
     Ok(())
@@ -45,14 +56,16 @@ pub struct EchoData {
 impl Task<TestContext> for EchoTask {
     type Output = EchoData;
 
-    fn new(_input: Option<Box<[u8]>>) -> Result<Box<Self>, std::io::Error>
+    fn new(_input: Option<Box<[u8]>>) -> Result<Box<Self>, CuteError>
     where
         Self: Sized
     {
         Ok(Box::new(Self {}))
     }
 
-    async fn execute(&mut self, ctx: Arc<tokio::sync::RwLock<TestContext>>) -> Result<Self::Output, std::io::Error> {
+    async fn execute(&mut self, ctx: Arc<tokio::sync::RwLock<TestContext>>) -> Result<Self::Output, CuteError> {
+        tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
+
         let mut writer = ctx.write().await;
         writer.test += 1;
         drop(writer);

@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "cute-cli",
     "cute-core"
-]
+,   "cute-network"]
 
 [workspace.package]
 edition = "2021"
@@ -16,7 +16,7 @@ description = "Practice Rust-lang"
 
 [workspace.dependencies]
 cute-core = {path = "cute-core"}
-cute-cli ={path = "cute-cli"}
+cute-network = {path = "cute-network"}
 
 tokio = {version = "1.40", features = ["full"]}
 tokio-stream = {version = "0.1" , features = ["full"]}
