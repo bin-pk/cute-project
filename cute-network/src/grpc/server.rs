@@ -1,12 +1,10 @@
-use std::fmt::format;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 use async_stream::stream;
 use log::info;
-use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status};
-use cute_core::{CuteError, Procedure, TaskConstructor};
+use cute_core::Procedure;
 use crate::grpc::convert_cute_error_to_status;
 use crate::grpc::proto::cute::cute_service_server::{CuteService, CuteServiceServer};
 use crate::grpc::proto::cute::{Empty, Input, Output, Protocols};

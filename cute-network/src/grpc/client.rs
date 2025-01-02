@@ -1,12 +1,10 @@
-use std::future::Future;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tonic::{Response, Status};
 use tonic::transport::Endpoint;
 use cute_core::{CuteError, DataStream};
 use crate::grpc::convert_status_to_cute_error;
 use crate::grpc::proto::cute::cute_service_client::CuteServiceClient;
-use crate::grpc::proto::cute::{Empty, Input, Protocols};
+use crate::grpc::proto::cute::{Empty, Input};
 use crate::NetworkConfig;
 
 #[derive(Debug)]

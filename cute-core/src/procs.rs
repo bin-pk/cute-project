@@ -1,6 +1,4 @@
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use crate::{DataStream, Procedure, Task, TaskConstructor};
+use crate::{Procedure, Task, TaskConstructor};
 use crate::errors::CuteError;
 
 pub struct ProcManager<C> {
