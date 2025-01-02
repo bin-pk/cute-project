@@ -1,10 +1,12 @@
+use std::future::Future;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
+use tonic::{Response, Status};
 use tonic::transport::Endpoint;
 use cute_core::{CuteError, DataStream};
 use crate::grpc::convert_status_to_cute_error;
 use crate::grpc::proto::cute::cute_service_client::CuteServiceClient;
-use crate::grpc::proto::cute::{Empty, Input};
+use crate::grpc::proto::cute::{Empty, Input, Protocols};
 use crate::NetworkConfig;
 
 #[derive(Debug)]
@@ -17,8 +19,9 @@ where C : Send + Sync + 'static,
 }
 
 impl<C> GRPCClient<C>
-where C : Default + Clone + Send + Sync + 'static {
-    pub async fn new(config : NetworkConfig) -> Result<Self, CuteError> {
+where C : Default + Clone + Send + Sync + 'static
+{
+    pub async fn new(config: NetworkConfig) -> Result<Self, CuteError> {
         let ctx = C::default();
         let url = format!("http://{}", config.host_address);
         let endpoint = Endpoint::from_shared(url)
@@ -33,7 +36,14 @@ where C : Default + Clone + Send + Sync + 'static {
         })
     }
 
-    pub async fn get_unary_data(&mut self, key : Box<str>,parameter : Option<Vec<u8>>) -> Result<Vec<u8>,CuteError>
+    pub async fn get_service_names(&mut self) {
+        match self.client.get_services_name(Empty {}).await {
+            Ok(_) => {}
+            Err(_) => {}
+        }
+    }
+
+    pub async fn get_unary_data(&mut self, key: Box<str>, parameter: Option<Vec<u8>>) -> Result<Vec<u8>, CuteError>
     {
         match self.client.server_unary(Input {
             name: key.to_string(),
@@ -58,7 +68,7 @@ where C : Default + Clone + Send + Sync + 'static {
         }
     }
 
-    pub async fn get_stream_data(&mut self, key : Box<str>,parameter : Option<Vec<u8>>) -> Result<DataStream<Vec<u8>>, CuteError>
+    pub async fn get_stream_data(&mut self, key: Box<str>, parameter: Option<Vec<u8>>) -> Result<DataStream<Vec<u8>>, CuteError>
     {
         match self.client.server_stream(Input {
             name: key.to_string(),
@@ -66,7 +76,7 @@ where C : Default + Clone + Send + Sync + 'static {
         }).await.map_err(|e| convert_status_to_cute_error(e)) {
             Ok(response) => {
                 let mut stream = response.into_inner();
-                let (tx,rx) = tokio::sync::mpsc::channel(self.config.max_channel_size);
+                let (tx, rx) = tokio::sync::mpsc::channel(self.config.max_channel_size);
                 tokio::spawn(async move {
                     let mut flat_vec = Vec::new();
                     while let Some(output) = stream.next().await {
@@ -99,7 +109,7 @@ where C : Default + Clone + Send + Sync + 'static {
         }
     }
 
-    pub async fn close_stream(&mut self, key : Box<str>) -> Result<(), CuteError> {
+    pub async fn close_stream(&mut self, key: Box<str>) -> Result<(), CuteError> {
         match self.client.server_stream_close(Input {
             name: key.to_string(),
             data: None,
@@ -114,8 +124,7 @@ where C : Default + Clone + Send + Sync + 'static {
     }
 
     pub async fn close_stream_all(&mut self) -> Result<(), CuteError> {
-        match self.client.server_stream_all_close(Empty {
-        }).await.map_err(|e| convert_status_to_cute_error(e)) {
+        match self.client.server_stream_all_close(Empty {}).await.map_err(|e| convert_status_to_cute_error(e)) {
             Ok(_) => {
                 Ok(())
             }

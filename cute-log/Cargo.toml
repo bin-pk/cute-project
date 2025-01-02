@@ -1,0 +1,13 @@
+[package]
+name = "cute-log"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+description.workspace = true
+
+[dependencies]
+log.workspace = true
+env_logger.workspace = true

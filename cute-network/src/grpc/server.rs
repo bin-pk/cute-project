@@ -1,9 +1,12 @@
+use std::fmt::format;
 use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
+use async_stream::stream;
+use log::info;
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status};
-use cute_core::{Procedure};
+use cute_core::{CuteError, Procedure, TaskConstructor};
 use crate::grpc::convert_cute_error_to_status;
 use crate::grpc::proto::cute::cute_service_server::{CuteService, CuteServiceServer};
 use crate::grpc::proto::cute::{Empty, Input, Output, Protocols};
@@ -20,6 +23,7 @@ where R : AsRef<P>,
     config : NetworkConfig,
     procedure: R,
     context : Arc<tokio::sync::RwLock<C>>,
+    peer_map : Arc<tokio::sync::Mutex<std::collections::HashMap<Box<str>, tokio::sync::watch::Sender<bool>>>>,
     _phantom_p: PhantomData<fn() -> P>,
 }
 
@@ -34,6 +38,7 @@ where R : AsRef<P> + Send + Sync + 'static,
             config,
             procedure,
             context : Arc::new(tokio::sync::RwLock::new(ctx)),
+            peer_map : Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             _phantom_p: Default::default(),
         };
         tonic::transport::Server::builder()
@@ -72,22 +77,31 @@ where R : AsRef<P> + Send + Sync + 'static,
     async fn server_unary(&self, mut request: Request<Input>) -> Result<Response<Self::ServerUnaryStream>, Status> {
         let proc_map = self.procedure.as_ref();
         let name = request.get_ref().name.clone();
-        match proc_map.one_of_run(name.clone().into_boxed_str(),
-                                  self.context.clone(), request.get_mut().data.take().map(Vec::into_boxed_slice)).await {
-            Ok(output) => {
-                let output_len = output.len();
-                let chuck_size = output_len / self.config.max_page_byte_size + (output_len % self.config.max_page_byte_size != 0) as usize;
+
+        match proc_map.get_task(name.clone().into_boxed_str(),
+                                request.get_mut().data.take().map(Vec::into_boxed_slice)).await {
+            Ok(mut task) => {
                 let mut result = Vec::new();
-                for (chuck_idx, chuck_item) in output.chunks(self.config.max_page_byte_size).enumerate() {
-                    let paged_output = Output {
-                        name : name.clone(),
-                        page_size: chuck_size as u32,
-                        page_idx: chuck_idx as u32,
-                        data: chuck_item.to_vec(),
-                    };
-                    result.push(Ok(paged_output));
+                let opt_output = task.execute(self.context.clone()).await.map_err(|e| convert_cute_error_to_status(e))?;
+                match opt_output {
+                    None => {
+                    }
+                    Some(output) => {
+                        let output_len = output.len();
+                        let chuck_size = output_len / self.config.max_page_byte_size + (output_len % self.config.max_page_byte_size != 0) as usize;
+                        for (chuck_idx, chuck_item) in output.chunks(self.config.max_page_byte_size).enumerate() {
+                            let paged_output = Output {
+                                name : name.clone(),
+                                page_size: chuck_size as u32,
+                                page_idx: chuck_idx as u32,
+                                data: chuck_item.to_vec(),
+                            };
+                            result.push(Ok(paged_output));
+                        }
+                    }
                 }
                 Ok(Response::new(Box::pin(tokio_stream::iter(result))))
+
             }
             Err(e) => {
                 Err(convert_cute_error_to_status(e))
@@ -98,43 +112,62 @@ where R : AsRef<P> + Send + Sync + 'static,
     type ServerStreamStream = Pin<Box<dyn tokio_stream::Stream<Item = Result<Output, Status>> + Send>>;
 
     async fn server_stream(&self, mut request: Request<Input>) -> Result<Response<Self::ServerStreamStream>, Status> {
-        let proc_map = self.procedure.as_ref();
+        let (stop_signal,_) = tokio::sync::watch::channel(false);
         let name = request.get_ref().name.clone();
-        match proc_map.iter_run(name.clone().into_boxed_str(),
-                                self.context.clone(), request.get_mut().data.take().map(Vec::into_boxed_slice)).await {
-            Ok(mut stream) => {
-                let max_page_byte_size = self.config.max_page_byte_size;
-                let time_out = tokio::time::Duration::from_secs(self.config.time_out);
-                let (tx,rx) = tokio::sync::mpsc::channel(self.config.max_channel_size);
+        let remote_addr = request
+            .remote_addr()
+            .map(|addr| addr.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let key_name = format!("{}_{}",remote_addr,name);
 
-                tokio::spawn(async move {
-                    while let Some(res_output) = stream.next().await {
-                        match res_output {
-                            Ok(output) => {
-                                let output_len = output.len();
-                                let chuck_size = output_len / max_page_byte_size + (output_len % max_page_byte_size != 0) as usize;
-                                for (chuck_idx, chuck_item) in output.chunks(max_page_byte_size).enumerate() {
-                                    let paged_output = Output {
-                                        name: name.clone(),
-                                        page_size: chuck_size as u32,
-                                        page_idx: chuck_idx as u32,
-                                        data: chuck_item.to_vec(),
-                                    };
-                                    if let Err(_) = tokio::time::timeout(time_out, tx.send(Ok(paged_output))).await {
-                                        println!("Timed out while sending output");
+        info!("key : {}",key_name);
+
+        let stop_rx = stop_signal.subscribe();
+        let mut lock_peer_map = self.peer_map.lock().await;
+        if let Some(sender) = lock_peer_map.get(&key_name.clone().into_boxed_str()) {
+            let _ = sender.send(true).is_err();
+        }
+        lock_peer_map.entry(key_name.clone().into_boxed_str()).or_insert(stop_signal);
+        drop(lock_peer_map);
+
+        let proc_map = self.procedure.as_ref();
+        match proc_map.get_task(name.clone().into_boxed_str(),
+                                request.get_mut().data.take().map(Vec::into_boxed_slice)).await {
+            Ok(mut task) => {
+                let ctx = self.context.clone();
+                let max_page_byte_size = self.config.max_page_byte_size;
+                Ok(Response::new(Box::pin(stream! {
+                    let mut is_closed = false;
+                    loop {
+                        if *stop_rx.borrow() {
+                            is_closed = true;
+                        }
+                        if is_closed {
+                            break;
+                        } else {
+                            match task.execute(ctx.clone()).await {
+                                Ok(opt_output) => {
+                                    if let Some(output) = opt_output {
+                                        let output_len = output.len();
+                                        let chuck_size = output_len / max_page_byte_size + (output_len % max_page_byte_size != 0) as usize;
+                                        for (chuck_idx, chuck_item) in output.chunks(max_page_byte_size).enumerate() {
+                                            yield Ok( Output {
+                                                name : name.clone(),
+                                                page_size: chuck_size as u32,
+                                                page_idx: chuck_idx as u32,
+                                                data: chuck_item.to_vec(),
+                                            });
+                                        }
                                     }
                                 }
-                            }
-                            Err(e) => {
-                                if let Err(_) = tokio::time::timeout(time_out, tx.send(Err(convert_cute_error_to_status(e)))).await {
-                                    println!("Timed out while sending output");
+                                Err(e) => {
+                                    yield Err(convert_cute_error_to_status(e));
                                 }
                             }
                         }
                     }
-                    drop(tx);
-                });
-                Ok(Response::new(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx))))
+                    info!("Server Stream stopped");
+                })))
             }
             Err(e) => {
                 Err(convert_cute_error_to_status(e))
@@ -143,20 +176,38 @@ where R : AsRef<P> + Send + Sync + 'static,
     }
 
     async fn server_stream_close(&self, request: Request<Input>) -> Result<Response<Empty>, Status> {
-        let proc_map = self.procedure.as_ref();
-        match proc_map.iter_close(request.get_ref().name.clone().into_boxed_str()).await {
-            Ok(_) => {
-                Ok(Response::new(Empty {}))
-            }
-            Err(e) => {
-                Err(convert_cute_error_to_status(e))
-            }
+        let name = request.get_ref().name.clone();
+        let remote_addr = request
+            .remote_addr()
+            .map(|addr| addr.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        let key_name = format!("{}_{}",remote_addr,name);
+
+        let mut lock_peer_map = self.peer_map.lock().await;
+        if let Some(sender) = lock_peer_map.remove(&key_name.clone().into_boxed_str()) {
+            let _ = sender.send(true).is_err();
         }
+        drop(lock_peer_map);
+
+        Ok(Response::new(Empty {}))
     }
 
-    async fn server_stream_all_close(&self, _request: Request<Empty>) -> Result<Response<Empty>, Status> {
-        let proc_map = self.procedure.as_ref();
-        let _ = proc_map.iter_all_close().await;
+    async fn server_stream_all_close(&self, request: Request<Empty>) -> Result<Response<Empty>, Status> {
+
+        let remote_addr = request
+            .remote_addr()
+            .map(|addr| addr.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let mut lock_peer_map = self.peer_map.lock().await;
+
+        let key_to_remove: Vec<Box<str>> = lock_peer_map.keys().filter(|key| key.contains(remote_addr.as_str())).cloned().collect();
+        for item in key_to_remove {
+            if let Some(sender) = lock_peer_map.remove(&item) {
+                let _ = sender.send(true).is_err();
+            }
+        }
+        drop(lock_peer_map);
         Ok(Response::new(Empty {}))
     }
 }

@@ -48,7 +48,6 @@ impl Server {
         }
     }
 }
-
 pub enum Client<C>
 where C : Default + Clone + Send + Sync + 'static,
 {
@@ -62,6 +61,17 @@ where C : Default + Clone + Send + Sync + 'static
 
         Ok(Client::GRPC(GRPCClient::new(config).await?))
     }
+
+    pub async fn get_service_names(&mut self) -> Result<Vec<u8>, CuteError>
+    {
+        match self {
+            Client::GRPC(client) => {
+                client.get_service_names().await;
+                Ok(vec![])
+            }
+        }
+    }
+
 
     //task_constructor : Box<dyn TaskConstructor<T,C>>
     pub async fn get_unary(&mut self, key : Box<str>,parameter : Option<Vec<u8>>) -> Result<Vec<u8>, CuteError>
