@@ -26,7 +26,11 @@ impl<C> Procedure<C> for ProcManager<C>
 where C : Send + Sync + 'static
 {
     async fn get_service_names(&self) -> Result<Vec<String>, CuteError> {
-        todo!()
+        let mut results = Vec::new();
+        for (key,_) in self.constructor_map.iter() {
+            results.push(key.to_string());
+        }
+        Ok(results)
     }
 
     async fn get_task(&self, key: Box<str>, input: Option<Box<[u8]>>) -> Result<Box<dyn Task<C> + Send>, CuteError> {

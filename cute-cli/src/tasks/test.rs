@@ -43,7 +43,9 @@ impl Task<TestContext> for EchoTask {
     }
 }
 
-pub struct TestTask;
+pub struct TestTask {
+    test : Vec<i32>
+}
 
 #[async_trait::async_trait]
 impl Task<TestContext> for TestTask {
@@ -52,7 +54,9 @@ impl Task<TestContext> for TestTask {
     where
         Self: Sized
     {
-        Ok(Box::new(Self {}))
+        Ok(Box::new(Self {
+            test: Vec::new()
+        }))
     }
 
     async fn execute(&mut self, ctx: Arc<tokio::sync::RwLock<TestContext>>) -> Result<Option<Vec<u8>>, CuteError> {
