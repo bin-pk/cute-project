@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write};
+use serde::ser::SerializeStruct;
+use serde::Serializer;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CuteErrorCode {
@@ -31,12 +33,24 @@ pub struct CuteError {
     pub message : String,
 }
 
+impl Default for CuteError {
+    fn default() -> Self {
+        Self {
+            code : CuteErrorCode::Ok,
+            message: "".to_string(),
+        }
+    }
+}
+
 impl CuteError {
     fn new(code : CuteErrorCode, msg : impl Into<String>) -> Self {
         Self {
             code,
             message: msg.into()
         }
+    }
+    pub fn serialize(&self) -> Vec<u8> {
+        format!("{:?} : {}",self.code,self.message).as_bytes().to_vec()
     }
 
     pub fn serialize_invalid(msg : impl Into<String>) -> CuteError {

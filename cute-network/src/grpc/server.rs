@@ -30,12 +30,11 @@ where R : AsRef<P> + Send + Sync + 'static,
       P : Procedure<C> + Send + Sync + 'static,
       C : Default + Clone + Send + Sync + 'static,
 {
-    pub async fn start(procedure : R, config : NetworkConfig) -> Result<() , std::io::Error> {
-        let ctx = C::default();
+    pub async fn start(procedure : R, config : NetworkConfig, ctx : Arc<tokio::sync::RwLock<C>>) -> Result<() , std::io::Error> {
         let server = GRPCServer {
             config,
             procedure,
-            context : Arc::new(tokio::sync::RwLock::new(ctx)),
+            context : ctx,
             peer_map : Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             _phantom_p: Default::default(),
         };

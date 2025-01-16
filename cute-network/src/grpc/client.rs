@@ -19,8 +19,7 @@ where C : Send + Sync + 'static,
 impl<C> GRPCClient<C>
 where C : Default + Clone + Send + Sync + 'static
 {
-    pub async fn new(config: NetworkConfig) -> Result<Self, CuteError> {
-        let ctx = C::default();
+    pub async fn new(config: NetworkConfig, ctx : Arc<tokio::sync::RwLock<C>>) -> Result<Self, CuteError> {
         let url = format!("http://{}", config.host_address);
         let endpoint = Endpoint::from_shared(url)
             .map_err(|e| CuteError::internal(e.to_string()))?
@@ -30,7 +29,7 @@ where C : Default + Clone + Send + Sync + 'static
         Ok(Self {
             config,
             client: CuteServiceClient::connect(endpoint).await.map_err(|e| CuteError::internal(e.to_string()))?,
-            context: Arc::new(tokio::sync::RwLock::new(ctx)),
+            context: ctx,
         })
     }
 
