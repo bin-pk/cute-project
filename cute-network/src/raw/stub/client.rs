@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio_stream::{Stream, StreamExt, StreamMap};
-use cute_core::CuteError;
+use cute_core::{CuteError, DataStream};
 use crate::raw::packet::{CutePacketTrait, CutePacketType};
 use crate::raw::stub::cute_stream;
 
@@ -37,7 +37,6 @@ impl<P : CutePacketTrait> crate::raw::stub::CuteRawServiceClient<P>  {
             let arc_stream_map = stream_map.clone();
             async move {
                 let mut reader = cute_stream::<P>(tcp_stream,rx).await;
-                let mut protocol_map: HashMap<u32, Vec<Option<Box<P>>>> = HashMap::new();
                 let mut is_closed = false;
 
                 while !is_closed {
@@ -46,63 +45,26 @@ impl<P : CutePacketTrait> crate::raw::stub::CuteRawServiceClient<P>  {
                     } else {
                         if let Some(res_packet) = reader.next().await {
                             if let Ok(packet) = res_packet {
-                                let chuck_idx = packet.get_chuck_idx();
-                                let chuck_size = packet.get_chuck_size();
                                 let protocol = packet.get_packet_protocol();
                                 let protocol_type = packet.get_packet_type();
 
-                                if chuck_size == 1 {
-                                    match protocol_type {
-                                        CutePacketType::Unary => {
-                                            let mut lock_unary_map = arc_unary_map.lock().await;
-                                            lock_unary_map.entry(protocol).or_insert(packet);
-                                            drop(lock_unary_map);
+                                match protocol_type {
+                                    CutePacketType::Unary => {
+                                        let mut lock_unary_map = arc_unary_map.lock().await;
+                                        if !lock_unary_map.contains_key(&protocol_type) {
+                                            let _ = lock_unary_map.insert(protocol_type, packet);
                                         }
-                                        CutePacketType::Streaming => {
-                                            let mut lock_stream_map = arc_stream_map.lock().await;
-                                            if let Some(tx) = lock_stream_map.get_mut(&protocol) {
-                                                let _ = tx.send(packet).await;
-                                            }
-                                            drop(lock_stream_map);
+                                        drop(lock_unary_map);
+                                    }
+                                    CutePacketType::Streaming => {
+                                        let mut lock_stream_map = arc_stream_map.lock().await;
+                                        if let Some(tx) = lock_stream_map.get_mut(&protocol) {
+                                            let _ = tx.send(packet).await;
                                         }
-                                        _ => {}
+                                        drop(lock_stream_map);
                                     }
-                                } else {
-                                    // 없는 경우. 완전 새롭게 들어온 protocol 인 경우
-                                    if !protocol_map.contains_key(&protocol) {
-                                        protocol_map.insert(protocol, Vec::with_capacity(chuck_size));
-                                    }
-                                    protocol_map.get_mut(&protocol).unwrap()[chuck_size] = Some(packet);
-
-                                    if chuck_size == chuck_idx + 1 {
-                                        if let Some(inner_packets) = protocol_map.remove(&protocol) {
-                                            if inner_packets.iter().all(|x| x.is_some()) {
-
-                                                let summation_payload: Vec<u8> = inner_packets.iter().
-                                                    filter_map(|x| x.as_ref()).
-                                                    flat_map(|x| x.get_payload()).
-                                                    collect();
-
-                                                match protocol_type {
-                                                    CutePacketType::Unary => {
-                                                        let mut lock_unary_map = arc_unary_map.lock().await;
-                                                        lock_unary_map.entry(protocol).or_insert(P::send_create_packet(summation_payload, protocol, protocol_type));
-                                                        drop(lock_unary_map);
-                                                    }
-                                                    CutePacketType::Streaming => {
-                                                        let mut lock_stream_map = arc_stream_map.lock().await;
-                                                        if let Some(tx) = lock_stream_map.get_mut(&protocol) {
-                                                            let _ = tx.send(P::send_create_packet(summation_payload,protocol,protocol_type));
-                                                        }
-                                                        drop(lock_stream_map);
-                                                    }
-                                                    _ => {}
-                                                }
-                                            }
-                                        }
-                                    }
+                                    _ => {}
                                 }
-
                             } else {
                                 is_closed = true;
                             }
@@ -119,5 +81,51 @@ impl<P : CutePacketTrait> crate::raw::stub::CuteRawServiceClient<P>  {
             stream_map,
             _phantom_p: Default::default(),
         })
+    }
+
+    pub async fn client_unary(&self, protocol : u32, parameter : Option<Vec<u8>>) -> Result<Box<P>,CuteError> {
+        match parameter {
+            Some(input) => {
+                let _ = self.send_tx.send(Ok(P::send_create_packet(input,protocol,CutePacketType::Unary))).await.
+                    map_err(|e| CuteError::internal(format!("{:?}", e)))?;
+            }
+            None => {
+                let _ = self.send_tx.send(Ok(P::send_create_packet(vec![0,0,0,0],protocol,CutePacketType::Unary))).await.
+                    map_err(|e| CuteError::internal(format!("{:?}", e)))?;
+            }
+        }
+
+        loop {
+            let mut lock_unary_map = self.unary_map.lock().await;
+            if lock_unary_map.contains_key(&protocol) {
+                return Ok(lock_unary_map.remove(&protocol).unwrap());
+            }
+            drop(lock_unary_map);
+        }
+    }
+
+    pub async fn client_stream(&self, protocol : u32, parameter : Option<Vec<u8>>) -> Result<DataStream<Box<P>>, CuteError> {
+        let lock_stream_map = self.stream_map.lock().await;
+        if lock_stream_map.contains_key(&protocol) {
+            return Err(CuteError::internal("terminate and run that stream first!!!"));
+        }
+
+        let (tx,mut rx) = tokio::sync::mpsc::channel(64);
+        match parameter {
+            Some(input) => {
+                let _ = self.send_tx.send(Ok(P::send_create_packet(input,protocol,CutePacketType::Streaming))).await.
+                    map_err(|e| CuteError::internal(format!("{:?}", e)))?;
+            }
+            None => {
+                let _ = self.send_tx.send(Ok(P::send_create_packet(vec![0,0,0,0],protocol,CutePacketType::Streaming))).await.
+                    map_err(|e| CuteError::internal(format!("{:?}", e)))?;
+            }
+        }
+
+        let mut lock_stream_map = self.stream_map.lock().await;
+        lock_stream_map.entry(protocol).or_insert(tx);
+        drop(lock_stream_map);
+
+        Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx)))
     }
 }

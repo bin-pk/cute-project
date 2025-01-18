@@ -9,7 +9,6 @@ use std::thread::yield_now;
 use std::time::Duration;
 use async_stream::stream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::signal::windows::ctrl_break;
 use tokio::sync::mpsc::error::{SendError, TryRecvError, TrySendError};
 use tokio_stream::{Stream, StreamExt, StreamMap};
 use cute_core::{CuteError, DataStream};
@@ -28,7 +27,8 @@ where P : CutePacketTrait + Send
     async fn server_stream_all_close(&self) -> Result<(), CuteError>;
 }
 
-async fn cute_stream<P : CutePacketTrait>(mut tcp_stream : tokio::net::TcpStream, mut rx: tokio::sync::mpsc::Receiver<Result<Box<P>, CuteError>>) -> Pin<Box<dyn Stream<Item=Result<Box<P>, CuteError>> + Send>>
+async fn cute_stream<P : CutePacketTrait>(mut tcp_stream : tokio::net::TcpStream,
+                                          mut rx: tokio::sync::mpsc::Receiver<Result<Box<P>, CuteError>>) -> Pin<Box<dyn Stream<Item=Result<Box<P>, CuteError>> + Send>>
 {
     Box::pin(stream! {
         let mut is_closed = false;
