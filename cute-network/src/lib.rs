@@ -90,7 +90,7 @@ where C : Default + Clone + Send + Sync + 'static
 
 
     //task_constructor : Box<dyn TaskConstructor<T,C>>
-    pub async fn get_unary(&mut self, key : Box<str>,parameter : Option<Vec<u8>>) -> Result<Vec<u8>, CuteError>
+    pub async fn get_unary(&mut self, key :u32,parameter : Option<Vec<u8>>) -> Result<Vec<u8>, CuteError>
     {
         match self {
             Client::GRPC(client) => {
@@ -102,7 +102,7 @@ where C : Default + Clone + Send + Sync + 'static
         }
     }
 
-    pub async fn get_stream(&mut self, key : Box<str>,parameter : Option<Vec<u8>>) -> Result<DataStream<Vec<u8>>, CuteError>
+    pub async fn get_stream(&mut self, key : u32,parameter : Option<Vec<u8>>) -> Result<DataStream<Vec<u8>>, CuteError>
     {
         match self {
             Client::GRPC(client) => {
@@ -114,7 +114,7 @@ where C : Default + Clone + Send + Sync + 'static
         }
     }
 
-    pub async fn close_stream(&mut self, key : Box<str>) -> Result<(),CuteError> {
+    pub async fn close_stream(&mut self, key : u32) -> Result<(),CuteError> {
         match self {
             Client::GRPC(client) => {
                 client.close_stream(key).await

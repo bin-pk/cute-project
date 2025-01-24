@@ -2,7 +2,7 @@ use crate::{Procedure, Task, TaskConstructor};
 use crate::errors::CuteError;
 
 pub struct ProcManager<C> {
-    constructor_map : std::collections::HashMap<Box<str>, Box<dyn TaskConstructor<C> + Send + Sync>>,
+    constructor_map : std::collections::HashMap<u32, Box<dyn TaskConstructor<C> + Send + Sync>>,
     _phantom_c : std::marker::PhantomData<fn() -> C>,
 }
 
@@ -14,7 +14,7 @@ impl<C> ProcManager<C> {
         }
     }
 
-    pub fn insert(&mut self,key : Box<str>, task_constructor : Box<dyn TaskConstructor<C> + Send + Sync + 'static>) {
+    pub fn insert(&mut self,key : u32, task_constructor : Box<dyn TaskConstructor<C> + Send + Sync + 'static>) {
         self.constructor_map.entry(key).or_insert(task_constructor);
     }
 }
@@ -23,15 +23,15 @@ impl<C> ProcManager<C> {
 impl<C> Procedure<C> for ProcManager<C>
 where C : Send + Sync + 'static
 {
-    async fn get_service_names(&self) -> Result<Vec<String>, CuteError> {
+    async fn get_service_protocols(&self) -> Result<Vec<u32>, CuteError> {
         let mut results = Vec::new();
         for (key,_) in self.constructor_map.iter() {
-            results.push(key.to_string());
+            results.push(*key);
         }
         Ok(results)
     }
 
-    async fn get_task(&self, key: Box<str>, input: Option<Box<[u8]>>) -> Result<Box<dyn Task<C> + Send>, CuteError> {
+    async fn get_task(&self, key: u32, input: Option<Box<[u8]>>) -> Result<Box<dyn Task<C> + Send>, CuteError> {
         match self.constructor_map.get(&key) {
             None => {
                 Err(CuteError::not_found(format!("Task \"{}\" not found", key)))

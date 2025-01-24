@@ -5,22 +5,22 @@ pub struct Empty {}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Protocols {
-    #[prost(string, repeated, tag = "1")]
-    pub name: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(uint32, repeated, tag = "1")]
+    pub protocol: ::prost::alloc::vec::Vec<u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Input {
-    #[prost(string, tag = "1")]
-    pub name: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "1")]
+    pub protocol: u32,
     #[prost(bytes = "vec", optional, tag = "2")]
     pub data: ::core::option::Option<::prost::alloc::vec::Vec<u8>>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Output {
-    #[prost(string, tag = "1")]
-    pub name: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "1")]
+    pub protocol: u32,
     #[prost(uint32, tag = "2")]
     pub page_size: u32,
     #[prost(uint32, tag = "3")]

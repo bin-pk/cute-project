@@ -22,7 +22,7 @@ pub trait Task<C> {
     /// 생성자에서 생성한 후에 동작을 수행후 결과를 반환한다.
     ///
     /// mut 가능하도록 한 것은 자기 자신 내부에서 Task 를 생성해 그 Task 결과가 동적 프로그래밍과 같이 작동할 수 있기에 mutable 하도록 함.
-    async fn execute(&mut self, ctc: Arc<tokio::sync::RwLock<C>>) -> Result<Option<Vec<u8>>, CuteError>;
+    async fn execute(&mut self, ctx: Arc<tokio::sync::RwLock<C>>) -> Result<Option<Vec<u8>>, CuteError>;
 
     /// 경우에 따라 생성자에서 생성시에 나온 Member 변수를 할당해제등을 수행하거나 생존주기를 종료시킬떄 사용.
     async fn destroy(&mut self);
@@ -54,9 +54,9 @@ where C : Send + Sync + 'static,
 #[async_trait::async_trait]
 pub trait Procedure<C> {
     /// 현재 std::collection 에 기록된 모든 작업 내용을 반환.
-    async fn get_service_names(&self) -> Result<Vec<String>, CuteError>;
+    async fn get_service_protocols(&self) -> Result<Vec<u32>, CuteError>;
     /// 해당 이름을 가진 작업을 반환.
-    async fn get_task(&self, key : Box<str>, input : Option<Box<[u8]>>) -> Result<Box<dyn Task<C> + Send>, CuteError>;
+    async fn get_task(&self, key : u32, input : Option<Box<[u8]>>) -> Result<Box<dyn Task<C> + Send>, CuteError>;
 }
 
 #[macro_export]

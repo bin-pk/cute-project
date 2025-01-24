@@ -17,7 +17,7 @@ where C : Send + Sync + 'static,
 }
 
 impl<C> GRPCClient<C>
-where C : Default + Clone + Send + Sync + 'static
+where C : Clone + Send + Sync + 'static
 {
     pub async fn new(config: NetworkConfig, ctx : Arc<tokio::sync::RwLock<C>>) -> Result<Self, CuteError> {
         let url = format!("http://{}", config.host_address);
@@ -40,10 +40,10 @@ where C : Default + Clone + Send + Sync + 'static
         }
     }
 
-    pub async fn get_unary_data(&mut self, key: Box<str>, parameter: Option<Vec<u8>>) -> Result<Vec<u8>, CuteError>
+    pub async fn get_unary_data(&mut self, key: u32, parameter: Option<Vec<u8>>) -> Result<Vec<u8>, CuteError>
     {
         match self.client.server_unary(Input {
-            name: key.to_string(),
+            protocol: key,
             data: parameter,
         }).await.map_err(|e| convert_status_to_cute_error(e)) {
             Ok(response) => {
@@ -65,10 +65,10 @@ where C : Default + Clone + Send + Sync + 'static
         }
     }
 
-    pub async fn get_stream_data(&mut self, key: Box<str>, parameter: Option<Vec<u8>>) -> Result<DataStream<Vec<u8>>, CuteError>
+    pub async fn get_stream_data(&mut self, key: u32, parameter: Option<Vec<u8>>) -> Result<DataStream<Vec<u8>>, CuteError>
     {
         match self.client.server_stream(Input {
-            name: key.to_string(),
+            protocol: key,
             data: parameter,
         }).await.map_err(|e| convert_status_to_cute_error(e)) {
             Ok(response) => {
@@ -106,9 +106,9 @@ where C : Default + Clone + Send + Sync + 'static
         }
     }
 
-    pub async fn close_stream(&mut self, key: Box<str>) -> Result<(), CuteError> {
+    pub async fn close_stream(&mut self, key : u32) -> Result<(), CuteError> {
         match self.client.server_stream_close(Input {
-            name: key.to_string(),
+            protocol: key,
             data: None,
         }).await.map_err(|e| convert_status_to_cute_error(e)) {
             Ok(_) => {

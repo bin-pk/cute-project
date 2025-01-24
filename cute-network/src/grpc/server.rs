@@ -28,7 +28,7 @@ where R : AsRef<P>,
 impl<R, P, C> GRPCServer<R, P, C>
 where R : AsRef<P> + Send + Sync + 'static,
       P : Procedure<C> + Send + Sync + 'static,
-      C : Default + Clone + Send + Sync + 'static,
+      C : Clone + Send + Sync + 'static,
 {
     pub async fn start(procedure : R, config : NetworkConfig, ctx : Arc<tokio::sync::RwLock<C>>) -> Result<() , std::io::Error> {
         let server = GRPCServer {
@@ -58,10 +58,10 @@ where R : AsRef<P> + Send + Sync + 'static,
 {
     async fn get_services_name(&self, _request: Request<Empty>) -> Result<Response<Protocols>, Status> {
         let proc_map = self.procedure.as_ref();
-        match proc_map.get_service_names().await {
+        match proc_map.get_service_protocols().await {
             Ok(res) => {
                 Ok(Response::new(Protocols {
-                    name: res,
+                    protocol: res,
                 }))
             }
             Err(e) => {
@@ -73,9 +73,9 @@ where R : AsRef<P> + Send + Sync + 'static,
 
     async fn server_unary(&self, mut request: Request<Input>) -> Result<Response<Self::ServerUnaryStream>, Status> {
         let proc_map = self.procedure.as_ref();
-        let name = request.get_ref().name.clone();
+        let protocol = request.get_ref().protocol;
 
-        match proc_map.get_task(name.clone().into_boxed_str(),
+        match proc_map.get_task(protocol,
                                 request.get_mut().data.take().map(Vec::into_boxed_slice)).await {
             Ok(mut task) => {
                 let mut result = Vec::new();
@@ -88,7 +88,7 @@ where R : AsRef<P> + Send + Sync + 'static,
                         let chuck_size = output_len / self.config.max_page_byte_size + (output_len % self.config.max_page_byte_size != 0) as usize;
                         for (chuck_idx, chuck_item) in output.chunks(self.config.max_page_byte_size).enumerate() {
                             let paged_output = Output {
-                                name : name.clone(),
+                                protocol,
                                 page_size: chuck_size as u32,
                                 page_idx: chuck_idx as u32,
                                 data: chuck_item.to_vec(),
@@ -110,12 +110,12 @@ where R : AsRef<P> + Send + Sync + 'static,
 
     async fn server_stream(&self, mut request: Request<Input>) -> Result<Response<Self::ServerStreamStream>, Status> {
         let (stop_signal,_) = tokio::sync::watch::channel(false);
-        let name = request.get_ref().name.clone();
+        let protocol = request.get_ref().protocol;
         let remote_addr = request
             .remote_addr()
             .map(|addr| addr.to_string())
             .unwrap_or_else(|| "unknown".to_string());
-        let key_name = format!("{}_{}",remote_addr,name);
+        let key_name = format!("{}_{}",remote_addr,protocol);
 
         info!("key : {}",key_name);
 
@@ -128,7 +128,7 @@ where R : AsRef<P> + Send + Sync + 'static,
         drop(lock_peer_map);
 
         let proc_map = self.procedure.as_ref();
-        match proc_map.get_task(name.clone().into_boxed_str(),
+        match proc_map.get_task(protocol,
                                 request.get_mut().data.take().map(Vec::into_boxed_slice)).await {
             Ok(mut task) => {
                 let ctx = self.context.clone();
@@ -149,7 +149,7 @@ where R : AsRef<P> + Send + Sync + 'static,
                                         let chuck_size = output_len / max_page_byte_size + (output_len % max_page_byte_size != 0) as usize;
                                         for (chuck_idx, chuck_item) in output.chunks(max_page_byte_size).enumerate() {
                                             yield Ok( Output {
-                                                name : name.clone(),
+                                                protocol,
                                                 page_size: chuck_size as u32,
                                                 page_idx: chuck_idx as u32,
                                                 data: chuck_item.to_vec(),
@@ -173,12 +173,12 @@ where R : AsRef<P> + Send + Sync + 'static,
     }
 
     async fn server_stream_close(&self, request: Request<Input>) -> Result<Response<Empty>, Status> {
-        let name = request.get_ref().name.clone();
+        let protocol = request.get_ref().protocol;
         let remote_addr = request
             .remote_addr()
             .map(|addr| addr.to_string())
             .unwrap_or_else(|| "unknown".to_string());
-        let key_name = format!("{}_{}",remote_addr,name);
+        let key_name = format!("{}_{}",remote_addr,protocol);
 
         let mut lock_peer_map = self.peer_map.lock().await;
         if let Some(sender) = lock_peer_map.remove(&key_name.clone().into_boxed_str()) {

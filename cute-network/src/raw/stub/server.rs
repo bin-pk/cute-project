@@ -1,12 +1,16 @@
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::net::SocketAddr;
+use std::pin::Pin;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio_stream::StreamExt;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc::error::TryRecvError;
+use tokio_stream::{StreamExt, StreamMap};
 use cute_core::CuteError;
-use crate::raw::packet::{CutePacketTrait, CutePacketType};
-use crate::raw::stub::{cute_stream, CuteRawService};
+use crate::raw::packet::{CutePacketTrait, CutePacketType, CutePacketValid};
+use crate::raw::stub::{CuteRawService};
 
 struct _Inner<T>(Arc<T>);
 
@@ -36,173 +40,224 @@ where P : CutePacketTrait
         }
     }
 
-    pub fn set_timeout(&mut self, duration: Duration) {
-        self.timeout = Some(duration);
-    }
-
     pub async fn start(&self) -> Result<(), CuteError> {
-        let mut listener = tokio::net::TcpListener::bind(self.host_addr)
+        let listener = tokio::net::TcpListener::bind(self.host_addr)
             .await.map_err(|e| CuteError::internal(e.to_string()))?;
 
-        loop {
-            let (mut tcp_stream, remote_addr) = listener.accept().await.map_err(|e| CuteError::internal(e.to_string()))?;
-            tcp_stream.set_linger(None).expect("set_linger call failed");
+        let (close_tx,mut close_rx) = tokio::sync::mpsc::channel(64);
+        let (send_tx,mut send_rx) = tokio::sync::mpsc::channel(64);
+        let peer_map: Arc<tokio::sync::Mutex<HashMap<SocketAddr, (tokio::net::TcpStream, Vec<u8>)>>> = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        let stream_map : Arc<tokio::sync::Mutex<StreamMap<String, Pin<Box<dyn tokio_stream::Stream<Item=Result<Vec<u8>, CuteError>> + Send>>>>> = Arc::new(tokio::sync::Mutex::new(StreamMap::new()));
 
-            let (send_tx, rx) = tokio::sync::mpsc::channel(64);
-            let (stop_signal,_) = tokio::sync::watch::channel(false);
-            let stop_rx = stop_signal.subscribe();
-            let mut stream_map = Arc::new(tokio::sync::Mutex::new(tokio_stream::StreamMap::new()));
-
-            tokio::spawn({
-                let arc_tx = send_tx.clone();
-                let arc_stream_map = stream_map.clone();
-                let arc_service = self.inner.0.clone();
-
-                async move {
-                    let mut reader = cute_stream::<P>(tcp_stream,rx).await;
-                    let mut protocol_map: HashMap<u32, Vec<Option<Box<P>>>> = HashMap::new();
-                    let mut is_closed = false;
-
-                    while !is_closed {
-                        if *stop_rx.borrow() {
-                            is_closed = true;
-                        } else {
-                            if let Some(res_packet) = reader.next().await {
-                                if let Ok(packet) = res_packet {
-                                    let chuck_idx = packet.get_chuck_idx();
-                                    let chuck_size = packet.get_chuck_size();
-                                    let protocol = packet.get_packet_protocol();
-                                    let protocol_type = packet.get_packet_type();
-
-                                    if chuck_size == 1 {
-                                        match protocol_type {
-                                            CutePacketType::Unary => {
-                                                match arc_service.server_unary(protocol, packet.get_payload().into_boxed_slice()).await {
-                                                    Ok(output) => {
-                                                        if let Err(_) = arc_tx.send(Ok(P::send_create_packet(output,protocol,protocol_type))).await {
-                                                            is_closed = true;
-                                                        }
-                                                    }
-                                                    Err(err) => {
-                                                        if let Err(_) = arc_tx.send(Err(err)).await {
-                                                            is_closed = true;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            CutePacketType::Streaming => {
-                                                let mut lock_stream_map = arc_stream_map.lock().await;
-                                                if lock_stream_map.contains_key(&protocol) {
-                                                    let _ = lock_stream_map.remove(&protocol);
-                                                }
-                                                if let Ok(inner_stream) = arc_service.server_stream(protocol, packet.get_payload().into_boxed_slice()).await {
-                                                    let _ = lock_stream_map.insert(protocol, inner_stream);
-                                                }
-                                                drop(lock_stream_map);
-                                            }
-                                            CutePacketType::StreamClose => {
-                                                let _ = arc_service.server_stream_close(protocol).await;
-                                                let mut lock_stream_map = arc_stream_map.lock().await;
-                                                let _ = lock_stream_map.remove(&protocol);
-                                                drop(lock_stream_map);
-                                            }
-                                            CutePacketType::StreamAllClose => {
-                                                let _ = arc_service.server_stream_all_close().await;
-                                                let mut lock_stream_map = arc_stream_map.lock().await;
-                                                lock_stream_map.clear();
-                                                drop(lock_stream_map);
-                                            }
-                                            _ => {}
-                                        }
-                                    } else {
-                                        // 없는 경우. 완전 새롭게 들어온 protocol 인 경우
-                                        if !protocol_map.contains_key(&protocol) {
-                                            protocol_map.insert(protocol, Vec::with_capacity(chuck_size));
-                                        }
-                                        protocol_map.get_mut(&protocol).unwrap()[chuck_size] = Some(packet);
-
-                                        if chuck_size == chuck_idx + 1 {
-                                            if let Some(inner_packets) = protocol_map.remove(&protocol) {
-                                                if inner_packets.iter().all(|x| x.is_some()) {
-                                                    let summation_payload: Vec<u8> = inner_packets.iter().
-                                                        filter_map(|x| x.as_ref()).
-                                                        flat_map(|x| x.get_payload()).
-                                                        collect();
-
-                                                    match protocol_type {
-                                                        CutePacketType::Unary => {
-                                                            match arc_service.server_unary(protocol, summation_payload.into_boxed_slice()).await {
-                                                                Ok(output) => {
-                                                                    if let Err(_) = arc_tx.send(Ok(P::send_create_packet(output,protocol,protocol_type))).await {
-                                                                        is_closed = true;
-                                                                    }
-                                                                }
-                                                                Err(err) => {
-                                                                    if let Err(_) = arc_tx.send(Err(err)).await {
-                                                                        is_closed = true;
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                        CutePacketType::Streaming => {
-                                                            let mut lock_stream_map = arc_stream_map.lock().await;
-                                                            if lock_stream_map.contains_key(&protocol) {
-                                                                let _ = lock_stream_map.remove(&protocol);
-                                                            }
-                                                            if let Ok(inner_stream) = arc_service.server_stream(protocol, summation_payload.into_boxed_slice()).await {
-                                                                let _ = lock_stream_map.insert(protocol, inner_stream);
-                                                            }
-                                                            drop(lock_stream_map);
-                                                        }
-                                                        _ => {}
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else {}
-                            } else {
-                                is_closed = true;
+        //close
+        tokio::spawn({
+            let arc_peer_map = peer_map.clone();
+            async move {
+                let mut delay = tokio::time::interval(Duration::from_micros(10));
+                loop {
+                    delay.tick().await;
+                    match close_rx.try_recv() {
+                        Ok(remote_addr) => {
+                            if let Some((mut tcp_stream,mut store_buffer)) = arc_peer_map.lock().await.remove(&remote_addr) {
+                                store_buffer.clear();
+                                let _ = tcp_stream.shutdown().await;
                             }
                         }
-                    }
-                    drop(arc_stream_map);
-                    drop(arc_service);
-                    drop(arc_tx);
-                    stop_signal.send(true).expect("stop signal");
-                }
-            });
-
-            tokio::spawn({
-                let arc_tx = send_tx.clone();
-                let arc_stream_map = stream_map.clone();
-                async move {
-                    let mut is_closed = false;
-                    while !is_closed {
-                        if *stop_rx.borrow() {
-                            is_closed = true;
-                        } else {
-                            if let Some((protocol, res)) = arc_stream_map.lock().await.next().await {
-                                match res {
-                                    Ok(output) => {
-                                        if let Err(e) = arc_tx.send(Ok(P::send_create_packet(output,protocol,CutePacketType::Streaming))).await {
-                                            is_closed = true;
-                                        }
-                                    }
-                                    Err(err) => {
-                                        if let Err(e) = arc_tx.send(Err(err)).await {
-                                            is_closed = true;
-                                        }
-                                    }
+                        Err(e) => {
+                            match e {
+                                TryRecvError::Empty => {}
+                                TryRecvError::Disconnected => {
+                                    break;
                                 }
                             }
                         }
                     }
-                    drop(arc_stream_map);
-                    drop(arc_tx);
-                    stop_signal.send(true).expect("stop signal");
                 }
-            });
+                drop(arc_peer_map);
+            }
+        });
+
+        //task stream execute
+        tokio::spawn({
+            let arc_send_tx = send_tx.clone();
+            let arc_stream_map = stream_map.clone();
+            async move {
+                let mut delay = tokio::time::interval(Duration::from_micros(10));
+                loop {
+                    delay.tick().await;
+                    if let Some((key_name, res)) = arc_stream_map.lock().await.next().await {
+                        let parts: Vec<&str> = key_name.split('_').collect();
+                        let socket_addr = SocketAddr::from_str(parts[0]).unwrap();
+                        let protocol = parts[1].parse::<u32>().unwrap();
+
+                        match res {
+                            Ok(output) => {
+                                let _ = arc_send_tx.send((socket_addr, P::send_create_packet(output, protocol, CutePacketType::Streaming))).await;
+                            }
+                            Err(err) => {
+                                break;
+                            }
+                        }
+                    }
+                }
+                drop(arc_send_tx);
+                drop(arc_stream_map);
+            }
+        });
+
+        // tcp_read
+        tokio::spawn({
+            let arc_peer_map = peer_map.clone();
+            let arc_stream_map = stream_map.clone();
+            let arc_close_tx = close_tx.clone();
+            let arc_service = self.inner.0.clone();
+            let arc_send_tx = send_tx.clone();
+
+            async move {
+                let mut delay = tokio::time::interval(Duration::from_micros(10));
+                let drain_size = P::get_drain_size();
+                let mut chuck_protocol_map : HashMap<SocketAddr,HashMap<u32, Vec<Box<P>>>> = HashMap::new();
+                loop {
+                    delay.tick().await;
+                    for (remote_addr, (tcp_stream, store_buffer)) in arc_peer_map.lock().await.iter_mut() {
+                        if !chuck_protocol_map.contains_key(remote_addr) {
+                            let inner_hash_map = HashMap::new();
+                            chuck_protocol_map.insert(*remote_addr, inner_hash_map);
+                        }
+                        let protocol_item = chuck_protocol_map.get_mut(remote_addr);
+                        let mut read_buf = [0u8; 4096];
+
+                        match tcp_stream.try_read(&mut read_buf) {
+                            Ok(0) => { continue; }
+                            Ok(n) => {
+                                println!("Read {} bytes", n);
+                                store_buffer.extend_from_slice(&read_buf[..n]);
+                                match P::is_valid(&store_buffer) {
+                                    CutePacketValid::ValidOK(payload_len) => {
+                                        let packet = P::recv_create_packet(&store_buffer[0..payload_len]);
+                                        store_buffer.drain(0..payload_len);
+
+                                        let chuck_idx = packet.get_chuck_idx();
+                                        let chuck_size = packet.get_chuck_size();
+                                        let protocol = packet.get_packet_protocol();
+                                        let protocol_type = packet.get_packet_type();
+                                        let key_name = format!("{}_{}",remote_addr,protocol);
+
+                                        if let Some(packet_hash_map) = protocol_item {
+                                            if !packet_hash_map.contains_key(&protocol) {
+                                                packet_hash_map.entry(protocol).or_insert_with(Vec::new).push(packet);
+                                            } else {
+                                                packet_hash_map.get_mut(&protocol).unwrap().push(packet);
+                                            }
+
+                                            if chuck_size == chuck_idx + 1 {
+                                                if let Some(inner_packets) = packet_hash_map.remove(&protocol) {
+                                                    let summation_payload: Vec<u8> = inner_packets.iter().
+                                                        flat_map(|x| x.get_payload()).
+                                                        collect();
+
+                                                    match protocol_type {
+                                                        CutePacketType::Empty => {}
+                                                        CutePacketType::Unary => {
+                                                            if let Ok(output) = arc_service.server_unary(protocol, summation_payload.into_boxed_slice()).await {
+                                                                let _ = arc_send_tx.send((*remote_addr,P::send_create_packet(output,protocol,protocol_type))).await;
+                                                            }
+                                                        }
+                                                        CutePacketType::Streaming => {
+                                                            let mut lock_stream_map = arc_stream_map.lock().await;
+                                                            if lock_stream_map.contains_key(&key_name) {
+                                                                let _ = lock_stream_map.remove(&key_name.clone());
+                                                            }
+                                                            if let Ok(inner_stream) = arc_service.server_stream(protocol, summation_payload.into_boxed_slice()).await {
+                                                                let _ = lock_stream_map.insert(key_name.clone(), inner_stream);
+                                                            }
+                                                            drop(lock_stream_map);
+                                                        }
+                                                        CutePacketType::StreamClose => {
+                                                            let mut lock_stream_map = arc_stream_map.lock().await;
+                                                            if lock_stream_map.contains_key(&key_name) {
+                                                                let _ = lock_stream_map.remove(&key_name.clone());
+                                                            }
+                                                            drop(lock_stream_map);
+                                                        }
+                                                        CutePacketType::StreamAllClose => {
+                                                            let remote_addr_str= remote_addr.to_string();
+
+                                                            let mut lock_stream_map = arc_stream_map.lock().await;
+                                                            let key_to_remove: Vec<String> = lock_stream_map.keys().filter(|key| key.contains(remote_addr_str.as_str())).cloned().collect();
+                                                            for item in key_to_remove {
+                                                                let _ = lock_stream_map.remove(&item);
+                                                            }
+                                                            drop(lock_stream_map);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                    }
+                                    CutePacketValid::DataShort => {
+                                    }
+                                    CutePacketValid::ValidFailed(_) => {
+                                        if drain_size > 0 {
+                                            store_buffer.drain(0..drain_size);
+                                        } else {
+                                            store_buffer.clear();
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                if e.kind() != std::io::ErrorKind::WouldBlock {
+                                    store_buffer.clear();
+                                    let _ = arc_close_tx.send(*remote_addr).await;
+                                }
+                            }
+                        }
+                    }
+
+
+
+                }
+            }
+        });
+
+        // tcp_write
+        tokio::spawn({
+            let arc_peer_map = peer_map.clone();
+            async move {
+                let mut delay = tokio::time::interval(Duration::from_micros(10));
+                loop {
+                    delay.tick().await;
+                    match send_rx.recv().await {
+                        None => {}
+                        Some((remote_addr, res_packet)) => {
+                            let mut lock_peer_map = arc_peer_map.lock().await;
+                            if let Some((tcp_stream, _)) = lock_peer_map.get_mut(&remote_addr) {
+                                for item in P::chuck_create_packet(res_packet.get_payload(), res_packet.get_packet_protocol(), res_packet.get_packet_type()) {
+                                    match tcp_stream.write_all(&item.serialize()).await {
+                                        Ok(_) => {}
+                                        Err(_) => {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            drop(lock_peer_map);
+                        }
+                    }
+                }
+                drop(arc_peer_map);
+            }
+        });
+
+        loop {
+            let (tcp_stream, remote_addr) = listener.accept().await.map_err(|e| CuteError::internal(e.to_string()))?;
+            tcp_stream.set_linger(None).expect("set_linger call failed");
+
+            let mut lock_peer_map = peer_map.lock().await;
+            lock_peer_map.entry(remote_addr).or_insert((tcp_stream, vec![]));
+            drop(lock_peer_map);
         }
 
         Ok(())

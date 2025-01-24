@@ -5,16 +5,16 @@ package cute;
 message Empty{}
 
 message Protocols {
-  repeated string name = 1;
+  repeated uint32 protocol = 1;
 }
 
 message Input{
-  string name = 1;
+  uint32 protocol = 1;
   optional bytes data = 2;
 }
 
 message Output{
-  string name = 1;
+  uint32 protocol = 1;
   uint32 pageSize = 2;
   uint32 pageIdx = 3;
   bytes data = 4;

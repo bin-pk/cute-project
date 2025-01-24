@@ -1,4 +1,3 @@
-use std::alloc::handle_alloc_error;
 use std::fmt::Debug;
 use cute_core::CuteError;
 
@@ -71,7 +70,7 @@ pub trait CutePacketTrait : Send + Sync + 'static {
     fn serialize(&self) -> Vec<u8>;
 }
 
-pub const CUTE_DELIMITER: u32 = 0x12345678;
+pub const CUTE_DELIMITER : u32 = 0x12345678;
 pub const HEADER_SIZE: usize = 24;
 pub const TAIL_SIZE: usize = 4;
 pub const MAX_PAYLOAD_SIZE: usize = 65536 - HEADER_SIZE- TAIL_SIZE;
@@ -192,12 +191,12 @@ impl CutePacketTrait for CutePacket {
 
     fn chuck_create_packet(write_data: Vec<u8>, protocol: u32, protocol_type: CutePacketType) -> Vec<Box<Self>> {
         let chuck_size = (write_data.len() / MAX_PAYLOAD_SIZE) + (write_data.len() % MAX_PAYLOAD_SIZE != 0) as usize;
-        let mut result = Vec::with_capacity(chuck_size);
+        let mut result = vec![];
         let proc_type = protocol_type as u32;
 
         if write_data.len() > MAX_PAYLOAD_SIZE {
             for (idx, item) in write_data.chunks(MAX_PAYLOAD_SIZE).enumerate() {
-                result[idx] = Box::new(Self {
+                result.push(Box::new(Self {
                     header: CutePacketHeader {
                         delimiter: CUTE_DELIMITER,
                         protocol,
@@ -209,40 +208,42 @@ impl CutePacketTrait for CutePacket {
                     },
                     payload: item.to_vec(),
                     tail: CUTE_DELIMITER + protocol + item.len() as u32 + 0 + proc_type + idx as u32 + chuck_size as u32,
-                });
+                }));
             }
         } else {
-            result[0] = Box::new(Self {
+            let write_len = write_data.len();
+            result.push(Box::new(Self {
                 header: CutePacketHeader {
-                    delimiter: 0,
-                    protocol: 0,
-                    length: 0,
+                    delimiter: CUTE_DELIMITER,
+                    protocol: protocol,
+                    length: write_len as u32,
                     compress_length: 0,
-                    protocol_type: 0,
+                    protocol_type: proc_type,
                     idx: 0,
-                    count: 0,
+                    count: 1,
                 },
                 payload: write_data,
-                tail: 0,
-            });
+                tail:CUTE_DELIMITER + protocol + write_len as u32 + 0 + proc_type + 0 + 1,
+            }));
         }
         result
     }
 
     fn send_create_packet(write_data: Vec<u8>, protocol: u32, protocol_type: CutePacketType) -> Box<Self> {
+        let write_len = write_data.len();
         let proc_type = protocol_type as u32;
         Box::new(Self {
             header: CutePacketHeader {
                 delimiter: CUTE_DELIMITER,
                 protocol,
-                length: write_data.len() as u32,
+                length: write_len as u32,
                 compress_length: 0,
                 protocol_type: proc_type,
                 idx: 0,
                 count: 1,
             },
             payload: write_data,
-            tail: 0,
+            tail: CUTE_DELIMITER + protocol + write_len as u32 + 0 + proc_type + 0 + 1,
         })
     }
 
