@@ -37,7 +37,7 @@ impl<P : CutePacketTrait> crate::raw::stub::CuteRawServiceClient<P>  {
             async move {
                 let drain_size = P::get_drain_size();
 
-                let mut read_buf = [0u8; 4096];
+                let mut read_buf = [0u8; 65536];
                 let mut store_buffer = vec![];
                 let mut delay = tokio::time::interval(Duration::from_micros(10));
                 loop {
@@ -48,6 +48,7 @@ impl<P : CutePacketTrait> crate::raw::stub::CuteRawServiceClient<P>  {
                         match tcp_stream.try_read(&mut read_buf) {
                             Ok(0) => { continue; }
                             Ok(n) => {
+                                println!("read client buffer : {}",n);
                                 store_buffer.extend_from_slice(&read_buf[..n]);
                                 match P::is_valid(&store_buffer) {
                                     CutePacketValid::ValidOK(payload_len) => {

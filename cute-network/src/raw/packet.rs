@@ -137,17 +137,21 @@ impl CutePacketTrait for CutePacket {
             u16_bytes.copy_from_slice(&store_data[22..24]);
             let count = u16::from_le_bytes(u16_bytes);
 
-            u32_bytes.copy_from_slice(&store_data[HEADER_SIZE + data_len as usize..HEADER_SIZE + TAIL_SIZE + data_len as usize]);
-            let tail = u32::from_le_bytes(u32_bytes);
+            if HEADER_SIZE + TAIL_SIZE + data_len as usize <= store_data.len() {
+                u32_bytes.copy_from_slice(&store_data[HEADER_SIZE + data_len as usize..HEADER_SIZE + TAIL_SIZE + data_len as usize]);
+                let tail = u32::from_le_bytes(u32_bytes);
 
-            if data_delimiter != CUTE_DELIMITER {
-                CutePacketValid::ValidFailed(CuteError::internal("Packet delimiter do not match."))
-            } else {
-                if tail == data_delimiter + data_protocol + data_len + data_comp_len + proc_type + idx as u32 + count as u32 {
-                    CutePacketValid::ValidOK(HEADER_SIZE + data_len as usize + TAIL_SIZE)
+                if data_delimiter != CUTE_DELIMITER {
+                    CutePacketValid::ValidFailed(CuteError::internal("Packet delimiter do not match."))
                 } else {
-                    CutePacketValid::ValidFailed(CuteError::internal("Packet valid failed."))
+                    if tail == data_delimiter + data_protocol + data_len + data_comp_len + proc_type + idx as u32 + count as u32 {
+                        CutePacketValid::ValidOK(HEADER_SIZE + data_len as usize + TAIL_SIZE)
+                    } else {
+                        CutePacketValid::ValidFailed(CuteError::internal("Packet valid failed."))
+                    }
                 }
+            } else {
+                CutePacketValid::ValidFailed(CuteError::internal("헤더는 다들어왔으나 데이터는 부족함."))
             }
         }
     }

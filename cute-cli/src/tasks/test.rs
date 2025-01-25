@@ -5,13 +5,14 @@ use crate::context::TestContext;
 
 pub struct EchoTask;
 
-#[derive(Serialize, Deserialize,Debug,Copy, Clone)]
+#[derive(Serialize, Deserialize,Debug, Clone)]
 pub struct EchoData {
     data : i32
 }
 
-#[derive(Serialize, Deserialize,Debug,Copy, Clone)]
+#[derive(Serialize, Deserialize,Debug, Clone)]
 pub struct TestData {
+    empty_data : Vec<u8>,
     data : i32
 }
 
@@ -63,7 +64,7 @@ impl Task<TestContext> for TestTask {
         tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         let reader = ctx.read().await;
-        let echo = TestData { data : reader.test * 2 };
+        let echo = TestData { data : reader.test * 2, empty_data : vec![0;100_000] };
         drop(reader);
 
         Ok(Some(bin_serialize(echo)?))

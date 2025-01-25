@@ -125,7 +125,7 @@ where P : CutePacketTrait
                             chuck_protocol_map.insert(*remote_addr, inner_hash_map);
                         }
                         let protocol_item = chuck_protocol_map.get_mut(remote_addr);
-                        let mut read_buf = [0u8; 4096];
+                        let mut read_buf = [0u8; 65536];
 
                         match tcp_stream.try_read(&mut read_buf) {
                             Ok(0) => { continue; }
