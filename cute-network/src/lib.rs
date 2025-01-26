@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use cute_core::{CuteError, DataStream, Procedure};
 use crate::grpc::GRPCClient;
-use crate::raw::RawClient;
+use crate::raw::{CutePacket, RawClient};
 
 mod grpc;
 mod raw;
@@ -52,7 +52,7 @@ impl Server {
                 grpc::GRPCServer::start(procedure, *config,context).await
             }
             Server::Raw(config) => {
-                raw::CuteRawServer::start(procedure, *config,context).await
+                raw::CuteRawServer::<R,P,C,CutePacket>::start(procedure, *config,context).await
             }
         }
     }
@@ -61,7 +61,7 @@ pub enum Client<C>
 where C : Default + Clone + Send + Sync + 'static,
 {
     GRPC(GRPCClient<C>),
-    Raw(RawClient<C>)
+    Raw(RawClient<C,CutePacket>)
 }
 
 impl<C> Client<C>

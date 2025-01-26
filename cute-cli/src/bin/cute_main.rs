@@ -24,6 +24,9 @@ async fn main() -> Result<(), CuteError> {
             }
         }
     });
+
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
     tokio::spawn({
         let arc_ctx = ctx.clone();
         async move {
@@ -54,7 +57,7 @@ async fn main() -> Result<(), CuteError> {
             info!("client closed");
         }
     });
-
+    /*
     tokio::spawn({
         let arc_ctx = ctx.clone();
         async move {
@@ -90,7 +93,7 @@ async fn main() -> Result<(), CuteError> {
             info!("client closed");
         }
     });
-
+*/
 
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;

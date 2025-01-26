@@ -5,7 +5,7 @@ use std::pin::Pin;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_stream::{Stream, StreamExt};
 use cute_core::{CuteError};
-use crate::raw::packet::CutePacketTrait;
+use crate::raw::CutePacketTrait;
 
 pub use server::CuteRawServiceServer;
 pub use client::CuteRawServiceClient;

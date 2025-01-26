@@ -8,17 +8,19 @@ use crate::raw::packet::CutePacket;
 use crate::raw::stub::CuteRawServiceClient;
 
 #[derive(Debug)]
-pub struct RawClient<C>
+pub struct RawClient<C,P>
 where C : Send + Sync + 'static,
+    P : CutePacketTrait + Send
 {
     config : NetworkConfig,
-    client : CuteRawServiceClient<CutePacket>,
+    client : CuteRawServiceClient<P>,
     context : Arc<tokio::sync::RwLock<C>>,
     protocol_name_map : std::collections::HashMap<Box<str>, u32>
 }
 
-impl<C> RawClient<C>
+impl<C,P> RawClient<C,P>
 where C : Clone + Send + Sync + 'static,
+      P : CutePacketTrait + Send
 {
     pub async fn new(config : NetworkConfig, context : Arc<tokio::sync::RwLock<C>>) -> Result<Self,CuteError> {
         let client = CuteRawServiceClient::connect(config.host_address).await?;
@@ -71,46 +73,6 @@ where C : Clone + Send + Sync + 'static,
                 Err(e)
             }
         }
-
-
-        /*
-        match self.client.client_stream(key,parameter).await {
-            Ok(mut res_stream) => {
-                let (tx, rx) = tokio::sync::mpsc::channel(self.config.max_channel_size);
-                tokio::spawn(async move {
-                    let mut flat_vec = Vec::new();
-                    loop {
-                        if let Some(packet) = res_stream.next().await {
-                            match packet {
-                                Ok(value) => {
-                                    if value.get_chuck_idx() == 0 {
-                                        flat_vec.clear()
-                                    }
-                                    flat_vec.extend_from_slice(&value.get_payload());
-                                    if value.get_chuck_idx() + 1 == value.get_chuck_size() {
-                                        match tx.try_send(Ok(flat_vec.clone())) {
-                                            Ok(_) => {}
-                                            Err(_) => {}
-                                        }
-                                        flat_vec.clear()
-                                    }
-                                }
-                                Err(_) => {
-                                    break;
-                                }
-                            }
-                        } else {
-                            println!("123123123123")
-                        }
-                    }
-                });
-                Ok(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx)))
-            }
-            Err(e) => {
-                Err(e)
-            }
-        }
-        */
     }
 
     pub async fn close_stream(&mut self, key: u32) -> Result<(), CuteError> {

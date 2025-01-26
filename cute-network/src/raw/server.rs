@@ -5,35 +5,40 @@ use async_stream::stream;
 use tokio_stream::Stream;
 use cute_core::{CuteError, Procedure, Task};
 use crate::NetworkConfig;
+use crate::raw::CutePacketTrait;
 use crate::raw::packet::{CutePacket};
 use crate::raw::stub::{CuteRawService, CuteRawServiceServer};
 
-pub struct CuteRawServer<R, P, C>
+pub struct CuteRawServer<R, P, C, T>
 where R : AsRef<P>,
       P : Procedure<C>,
       C : Send + Sync + 'static,
+      T : CutePacketTrait + Send
 {
     config: NetworkConfig,
     procedure: R,
     context: Arc<tokio::sync::RwLock<C>>,
     close_map : Arc<tokio::sync::Mutex<std::collections::HashMap<u32, tokio::sync::watch::Sender<bool>>>>,
     _phantom_p: PhantomData<fn() -> P>,
+    _phantom_t : PhantomData<fn() -> T>,
 }
 
-impl <R, P, C> CuteRawServer<R, P, C>
+impl <R, P, C, T> CuteRawServer<R, P, C, T>
 where R : AsRef<P> + Send + Sync + 'static,
       P : Procedure<C> + Send + Sync + 'static,
       C : Clone + Send + Sync + 'static,
+      T : CutePacketTrait + Send
 {
     pub async fn start(procedure : R,
                        config : NetworkConfig,
                        ctx : Arc<tokio::sync::RwLock<C>>)-> Result<() , std::io::Error> {
-        let server = CuteRawServer {
+        let server = CuteRawServer::<R, P, C, T> {
             config,
             procedure,
             context : ctx,
             close_map: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             _phantom_p: Default::default(),
+            _phantom_t : Default::default(),
         };
 
         match CuteRawServiceServer::new(server, config.host_address).start().await {
@@ -48,10 +53,11 @@ where R : AsRef<P> + Send + Sync + 'static,
 }
 
 #[async_trait::async_trait]
-impl<R, P, C> CuteRawService<CutePacket> for CuteRawServer<R, P, C>
+impl<R, P, C, T> CuteRawService<T> for CuteRawServer<R, P, C, T>
 where R : AsRef<P> + Send + Sync + 'static,
       P : Procedure<C> + Send + Sync + 'static,
       C : Clone + Send + Sync + 'static,
+        T : CutePacketTrait + Send
 {
     async fn server_unary(&self, protocol: u32, input: Box<[u8]>) -> Result<Vec<u8>, CuteError> {
         let proc_map = self.procedure.as_ref();

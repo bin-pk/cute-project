@@ -9,7 +9,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio_stream::{StreamExt, StreamMap};
 use cute_core::CuteError;
-use crate::raw::packet::{CutePacketTrait, CutePacketType, CutePacketValid};
+use crate::raw::{CutePacketTrait, CutePacketType, CutePacketValid};
 use crate::raw::stub::{CuteRawService};
 
 struct _Inner<T>(Arc<T>);

@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::error::TryRecvError;
 use cute_core::{CuteError, DataStream};
-use crate::raw::packet::{CutePacketTrait, CutePacketType, CutePacketValid};
+use crate::raw::{CutePacketTrait, CutePacketType, CutePacketValid};
 
 #[derive(Debug)]
 pub struct CuteRawServiceClient<P : CutePacketTrait> {
@@ -16,7 +16,7 @@ pub struct CuteRawServiceClient<P : CutePacketTrait> {
     _phantom_p: PhantomData<fn() -> P>
 }
 
-impl<P : CutePacketTrait> Drop for crate::raw::stub::CuteRawServiceClient<P> {
+impl<P : CutePacketTrait> Drop for CuteRawServiceClient<P> {
     fn drop(&mut self) {
         self.stop_signal.send(true).expect("stop signal receiver dropped");
     }
