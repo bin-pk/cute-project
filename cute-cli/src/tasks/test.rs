@@ -13,7 +13,7 @@ pub struct EchoData {
 #[derive(Serialize, Deserialize,Debug, Clone)]
 pub struct TestData {
     empty_data : Vec<u8>,
-    data : i32
+    pub data : i32
 }
 
 

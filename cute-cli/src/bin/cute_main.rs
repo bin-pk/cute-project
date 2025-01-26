@@ -57,7 +57,7 @@ async fn main() -> Result<(), CuteError> {
             info!("client closed");
         }
     });
-    /*
+
     tokio::spawn({
         let arc_ctx = ctx.clone();
         async move {
@@ -79,7 +79,9 @@ async fn main() -> Result<(), CuteError> {
                         } else {
                             if let Ok(output) = res_output {
                                 let convert_result = bin_deserialize::<TestData>(&*output);
-                                info!("{:?}", convert_result);
+                                if let Ok(data) = convert_result {
+                                    info!("{:?}", data.data);
+                                }
                             }
                         }
                     }
@@ -93,7 +95,7 @@ async fn main() -> Result<(), CuteError> {
             info!("client closed");
         }
     });
-*/
+
 
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;

@@ -49,34 +49,6 @@ where P : CutePacketTrait
         let peer_map: Arc<tokio::sync::Mutex<HashMap<SocketAddr, (tokio::net::TcpStream, Vec<u8>)>>> = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
         let stream_map : Arc<tokio::sync::Mutex<StreamMap<String, Pin<Box<dyn tokio_stream::Stream<Item=Result<Vec<u8>, CuteError>> + Send>>>>> = Arc::new(tokio::sync::Mutex::new(StreamMap::new()));
 
-        //close
-        tokio::spawn({
-            let arc_peer_map = peer_map.clone();
-            async move {
-                let mut delay = tokio::time::interval(Duration::from_micros(10));
-                loop {
-                    delay.tick().await;
-                    match close_rx.try_recv() {
-                        Ok(remote_addr) => {
-                            if let Some((mut tcp_stream,mut store_buffer)) = arc_peer_map.lock().await.remove(&remote_addr) {
-                                store_buffer.clear();
-                                let _ = tcp_stream.shutdown().await;
-                            }
-                        }
-                        Err(e) => {
-                            match e {
-                                TryRecvError::Empty => {}
-                                TryRecvError::Disconnected => {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                drop(arc_peer_map);
-            }
-        });
-
         //task stream execute
         tokio::spawn({
             let arc_send_tx = send_tx.clone();
@@ -105,14 +77,13 @@ where P : CutePacketTrait
             }
         });
 
-        // tcp_read
+        // tcp_read & close
         tokio::spawn({
             let arc_peer_map = peer_map.clone();
             let arc_stream_map = stream_map.clone();
-            let arc_close_tx = close_tx.clone();
             let arc_service = self.inner.0.clone();
             let arc_send_tx = send_tx.clone();
-
+            let arc_close_tx = close_tx.clone();
             async move {
                 let mut delay = tokio::time::interval(Duration::from_micros(10));
                 let drain_size = P::get_drain_size();
@@ -128,7 +99,9 @@ where P : CutePacketTrait
                         let mut read_buf = [0u8; 65536];
 
                         match tcp_stream.try_read(&mut read_buf) {
-                            Ok(0) => { continue; }
+                            Ok(0) => {
+                                let _ = arc_close_tx.send(*remote_addr).await;
+                            }
                             Ok(n) => {
                                 println!("Read {} bytes", n);
                                 store_buffer.extend_from_slice(&read_buf[..n]);
@@ -209,21 +182,41 @@ where P : CutePacketTrait
                             }
                             Err(e) => {
                                 if e.kind() != std::io::ErrorKind::WouldBlock {
-                                    store_buffer.clear();
                                     let _ = arc_close_tx.send(*remote_addr).await;
                                 }
                             }
                         }
                     }
 
-
+                    match close_rx.try_recv() {
+                        Ok(remote_addr) => {
+                            if let Some((mut tcp_stream,mut store_buffer)) = arc_peer_map.lock().await.remove(&remote_addr) {
+                                store_buffer.clear();
+                                let _ = tcp_stream.shutdown().await;
+                            }
+                        }
+                        Err(e) => {
+                            match e {
+                                TryRecvError::Empty => {}
+                                TryRecvError::Disconnected => {
+                                    break;
+                                }
+                            }
+                        }
+                    }
 
                 }
+                drop(arc_close_tx);
+                drop(arc_send_tx);
+                drop(arc_service);
+                drop(arc_peer_map);
+                drop(arc_stream_map);
             }
         });
 
         // tcp_write
         tokio::spawn({
+            let arc_close_tx = close_tx.clone();
             let arc_peer_map = peer_map.clone();
             async move {
                 let mut delay = tokio::time::interval(Duration::from_micros(10));
@@ -238,7 +231,7 @@ where P : CutePacketTrait
                                     match tcp_stream.write_all(&item.serialize()).await {
                                         Ok(_) => {}
                                         Err(_) => {
-                                            break;
+                                            let _ = arc_close_tx.send(remote_addr).await;
                                         }
                                     }
                                 }
@@ -248,6 +241,7 @@ where P : CutePacketTrait
                     }
                 }
                 drop(arc_peer_map);
+                drop(arc_close_tx);
             }
         });
 
