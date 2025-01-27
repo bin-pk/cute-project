@@ -46,6 +46,7 @@ impl<P : CutePacketTrait> CuteRawServiceClient<P>  {
             let arc_unary_map = unary_map.clone();
             let arc_stream_map = stream_map.clone();
             async move {
+                let local_addr = tcp_stream.local_addr().unwrap();
                 let drain_size = P::get_drain_size();
 
                 let mut read_buf = [0u8; 65536];
@@ -59,7 +60,7 @@ impl<P : CutePacketTrait> CuteRawServiceClient<P>  {
                         match tcp_stream.try_read(&mut read_buf) {
                             Ok(0) => { continue; }
                             Ok(n) => {
-                                println!("{} client read size : {}",host_addr,n);
+                                info!("{} client read size : {}",local_addr,n);
                                 store_buffer.extend_from_slice(&read_buf[..n]);
                                 match P::is_valid(&store_buffer) {
                                     CutePacketValid::ValidOK(payload_len) => {
@@ -150,6 +151,7 @@ impl<P : CutePacketTrait> CuteRawServiceClient<P>  {
                 drop(arc_unary_map);
                 drop(arc_stop_flag);
 
+                let _ = tcp_stream.shutdown().await;
                 warn!("{} client read thread stopped!!!",host_addr);
             }
         });

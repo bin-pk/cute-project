@@ -118,7 +118,7 @@ where P : CutePacketTrait
                                     let _ = arc_close_tx.send(*remote_addr).await;
                                 }
                                 Ok(n) => {
-                                    println!("Read {} bytes", n);
+                                    info!("Server - to {} Read {} bytes",*remote_addr, n);
                                     store_buffer.extend_from_slice(&read_buf[..n]);
                                     match P::is_valid(&store_buffer) {
                                         CutePacketValid::ValidOK(payload_len) => {
