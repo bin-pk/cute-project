@@ -1,7 +1,5 @@
 use std::fmt::{Display, Formatter};
-use std::io::{ErrorKind, Write};
-use serde::ser::SerializeStruct;
-use serde::Serializer;
+use std::io::{ErrorKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CuteErrorCode {

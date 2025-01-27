@@ -39,7 +39,6 @@ async fn main() -> Result<(), CuteError> {
                 keep_alive_time_out: 60,
             },arc_ctx).await.unwrap();
 
-            let instant = tokio::time::Instant::now();
             match client.get_stream(0,None).await {
                 Ok(mut stream) => {
                     loop {
@@ -68,7 +67,7 @@ async fn main() -> Result<(), CuteError> {
                 host_address:  std::net::SocketAddr::from(([127,0,0,1], 7777)),
                 time_out: 30,
                 keep_alive_time_out: 60,
-            },ctx.clone()).await.unwrap();
+            },arc_ctx).await.unwrap();
 
             let instant = tokio::time::Instant::now();
             match client.get_stream(1,None).await {

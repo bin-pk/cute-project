@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 use cute_core::{CuteError, DataStream, Procedure};

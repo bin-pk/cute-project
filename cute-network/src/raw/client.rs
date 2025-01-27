@@ -4,7 +4,6 @@ use tokio_stream::StreamExt;
 use cute_core::{CuteError, DataStream};
 use crate::NetworkConfig;
 use crate::raw::CutePacketTrait;
-use crate::raw::packet::CutePacket;
 use crate::raw::stub::CuteRawServiceClient;
 
 #[derive(Debug)]

@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use cute_core::CuteError;
 pub use self::server::CuteRawServer;
 pub use self::client::RawClient;

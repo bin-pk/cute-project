@@ -1,7 +1,10 @@
+#![allow(unused)]
+
 use std::marker::PhantomData;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
+use log::{info, warn};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::error::TryRecvError;
 use cute_core::{CuteError, DataStream};
@@ -9,7 +12,7 @@ use crate::raw::{CutePacketTrait, CutePacketType, CutePacketValid};
 
 #[derive(Debug)]
 pub struct CuteRawServiceClient<P : CutePacketTrait> {
-    stop_signal : tokio::sync::watch::Sender<bool>,
+    stop_flag : Arc<tokio::sync::RwLock<bool>>,
     send_tx : tokio::sync::mpsc::Sender<Result<Box<P>,CuteError>>,
     unary_map : Arc<tokio::sync::Mutex<std::collections::HashMap<u32, Box<P>>>>,
     stream_map : Arc<tokio::sync::Mutex<std::collections::HashMap<u32, tokio::sync::mpsc::Sender<Result<Box<P>,CuteError>>>>>,
@@ -18,20 +21,28 @@ pub struct CuteRawServiceClient<P : CutePacketTrait> {
 
 impl<P : CutePacketTrait> Drop for CuteRawServiceClient<P> {
     fn drop(&mut self) {
-        self.stop_signal.send(true).expect("stop signal receiver dropped");
+        tokio::spawn({
+            let arc_stop_flag = self.stop_flag.clone();
+            async move {
+                let mut writer = arc_stop_flag.write().await;
+                *writer = true;
+                drop(writer);
+                drop(arc_stop_flag);
+            }
+        });
     }
 }
 
-impl<P : CutePacketTrait> crate::raw::stub::CuteRawServiceClient<P>  {
+impl<P : CutePacketTrait> CuteRawServiceClient<P>  {
     pub async fn connect(host_addr : SocketAddr) -> Result<Self,CuteError> {
         let (send_tx, mut rx) = tokio::sync::mpsc::channel::<Result<Box<P>, CuteError>>(64);
-        let (stop_signal,_) = tokio::sync::watch::channel(false);
-        let stop_rx = stop_signal.subscribe();
+        let stop_flag = Arc::new(tokio::sync::RwLock::new(false));
         let unary_map : Arc<tokio::sync::Mutex<std::collections::HashMap<u32, Box<P>>>>  = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
         let stream_map : Arc<tokio::sync::Mutex<std::collections::HashMap<u32, tokio::sync::mpsc::Sender<Result<Box<P>,CuteError>>>>> = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()));
         let mut tcp_stream = tokio::net::TcpStream::connect(host_addr).await.map_err(|e| CuteError::internal(format!("{:?}", e)))?;
 
         tokio::spawn({
+            let arc_stop_flag = stop_flag.clone();
             let arc_unary_map = unary_map.clone();
             let arc_stream_map = stream_map.clone();
             async move {
@@ -42,13 +53,13 @@ impl<P : CutePacketTrait> crate::raw::stub::CuteRawServiceClient<P>  {
                 let mut delay = tokio::time::interval(Duration::from_micros(10));
                 loop {
                     delay.tick().await;
-                    if *stop_rx.borrow() {
+                    if *arc_stop_flag.read().await {
                         break;
                     } else {
                         match tcp_stream.try_read(&mut read_buf) {
                             Ok(0) => { continue; }
                             Ok(n) => {
-                                println!("read client buffer : {}",n);
+                                println!("{} client read size : {}",host_addr,n);
                                 store_buffer.extend_from_slice(&read_buf[..n]);
                                 match P::is_valid(&store_buffer) {
                                     CutePacketValid::ValidOK(payload_len) => {
@@ -117,6 +128,7 @@ impl<P : CutePacketTrait> crate::raw::stub::CuteRawServiceClient<P>  {
 
                                     for item in P::chuck_create_packet(packet.get_payload(), protocol, protocol_type) {
                                         if let Err(e) = tcp_stream.write_all(&item.serialize()).await {
+                                            warn!("error sending packet: {}", e);
                                             break;
                                         }
                                     }
@@ -126,6 +138,7 @@ impl<P : CutePacketTrait> crate::raw::stub::CuteRawServiceClient<P>  {
                                 match e {
                                     TryRecvError::Empty => {}
                                     TryRecvError::Disconnected => {
+                                        warn!("{} disconnected channel.", host_addr);
                                         break;
                                     }
                                 }
@@ -135,11 +148,14 @@ impl<P : CutePacketTrait> crate::raw::stub::CuteRawServiceClient<P>  {
                 }
                 drop(arc_stream_map);
                 drop(arc_unary_map);
+                drop(arc_stop_flag);
+
+                warn!("{} client read thread stopped!!!",host_addr);
             }
         });
 
         Ok(Self {
-            stop_signal,
+            stop_flag : stop_flag,
             send_tx : send_tx.clone() ,
             unary_map,
             stream_map,
