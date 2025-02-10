@@ -4,7 +4,8 @@ members = [
     "cute-log",
     "cute-cli",
     "cute-core",
-    "cute-network"]
+    "cute-network",
+    "cute-embadded"]
 
 [workspace.package]
 edition = "2021"
@@ -19,6 +20,7 @@ description = "Practice Rust-lang"
 cute-log = {path = "cute-log"}
 cute-core = {path = "cute-core"}
 cute-network = {path = "cute-network"}
+cute-embadded = {path = "cute-embadded"}
 
 tokio = {version = "1.40", features = ["full"]}
 tokio-stream = {version = "0.1" , features = ["full"]}

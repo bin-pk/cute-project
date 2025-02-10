@@ -1,0 +1,5 @@
+mod ffi;
+
+struct EmbeddedTestTask {
+
+}

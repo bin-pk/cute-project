@@ -1,0 +1,16 @@
+[package]
+name = "cute-embadded"
+edition.workspace = true
+version.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+license.workspace = true
+description.workspace = true
+build = "build.rs"
+
+[dependencies]
+cute-core.workspace = true
+
+[build-dependencies]
+bindgen = "0.69"
