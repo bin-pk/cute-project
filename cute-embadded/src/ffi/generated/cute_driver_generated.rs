@@ -19,7 +19,7 @@ pub const cute_error_code_CUTE_STACK_OK: cute_error_code = 1;
 pub const cute_error_code_CUTE_HEAP_OK: cute_error_code = 2;
 pub const cute_error_code_CUTE_INTERNAL_ERROR: cute_error_code = 3;
 pub const cute_error_code_CUTE_DRIVER_ERROR: cute_error_code = 4;
-pub type cute_error_code = ::std::os::raw::c_uint;
+pub type cute_error_code = ::std::os::raw::c_int;
 pub use self::cute_error_code as CUTE_ERROR_CODE;
 #[repr(C)]
 #[derive(Copy, Clone)]

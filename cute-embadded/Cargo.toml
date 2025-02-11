@@ -10,6 +10,8 @@ description.workspace = true
 build = "build.rs"
 
 [dependencies]
+tokio.workspace = true
+serde.workspace = true
 cute-core.workspace = true
 
 [build-dependencies]
