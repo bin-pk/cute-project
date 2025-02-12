@@ -3,3 +3,7 @@
 //
 
 #pragma once
+
+typedef struct {
+    i32 not_used;
+} echo_input;

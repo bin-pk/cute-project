@@ -1,5 +1,3 @@
 mod ffi;
 
-struct EmbeddedTestTask {
-
-}
+pub use self::ffi::*;

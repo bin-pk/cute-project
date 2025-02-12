@@ -12,6 +12,7 @@ description.workspace = true
 cute-log.workspace = true
 cute-core.workspace = true
 cute-network.workspace = true
+cute-embadded.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 async-stream.workspace = true

@@ -6,7 +6,8 @@
 
 #include "type.h"
 
-#define CUTE_STACK_MAXIMUM 256
+#define CUTE_STACK_MAXIMUM 64
+
 
 typedef enum cute_error_code {
     /*
@@ -31,12 +32,15 @@ typedef enum cute_error_code {
     CUTE_DRIVER_ERROR,
 }CUTE_ERROR_CODE;
 
+typedef struct cute_driver_result cute_driver_result;
+
+typedef void (*destroy_function)(cute_driver_result *self);
 /*
  * create , execute 의 작업에 대한 결과로 무조건적으로 반환됩니다.
  *
  * 문자 열의 경우 최대 256 이상 넘어설 수 없습니다.
  */
-typedef struct {
+struct cute_driver_result{
     CUTE_ERROR_CODE code;
     u32 len;
     union {
@@ -49,7 +53,9 @@ typedef struct {
          */
         unsigned char stack_data[CUTE_STACK_MAXIMUM];
     } result;
-} cute_driver_result;
+    destroy_function destroy;
+};
+
 
 __BEGIN_DECLS
 cute_driver_result cute_empty_ok();

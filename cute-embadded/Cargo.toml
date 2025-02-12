@@ -13,6 +13,7 @@ build = "build.rs"
 tokio.workspace = true
 serde.workspace = true
 cute-core.workspace = true
+async-trait.workspace = true
 
 [build-dependencies]
 bindgen = "0.69"

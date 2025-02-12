@@ -2,7 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const HEADER_NAME:&str = "driver";
-const LIB_NAME:&str = "cute_driver";
 
 fn main() {
     cute_generate();

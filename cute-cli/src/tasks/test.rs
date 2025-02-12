@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use cute_core::{bin_serialize, CuteError, Task};
+use cute_embadded::*;
 use crate::context::TestContext;
 
 pub struct EchoTask;
@@ -73,15 +74,3 @@ impl Task<TestContext> for TestTask {
     async fn destroy(&mut self) {
     }
 }
-
-/*
-#[derive(Debug, Clone, Default)]
-pub struct EchoTaskConstructor;
-
-#[async_trait::async_trait]
-impl TaskConstructor<TestContext> for EchoTaskConstructor {
-    fn create(&self, input: Option<Box<[u8]>>) -> Result<Box<dyn Task<TestContext> + Send>, CuteError> {
-        EchoTask::new(input)
-    }
-}
-*/
