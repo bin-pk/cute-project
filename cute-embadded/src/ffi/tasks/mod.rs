@@ -87,13 +87,13 @@ generate_cute_task!(EmbeddedEchoTask,
 */
 
 pub struct EmbeddedEchoTask {
-    inner: Box<cute_driver_result>,
+    inner: cute_driver_result,
 }
 impl Drop for EmbeddedEchoTask {
     fn drop(&mut self) {
         unsafe {
             if let Some(destroy_fn) = self.inner.destroy {
-                destroy_fn(self.inner.as_mut());
+                destroy_fn(&mut self.inner);
             }
         }
     }
@@ -107,14 +107,14 @@ impl Task<EmbeddedContext> for EmbeddedEchoTask {
         unsafe {
             match _input {
                 None => Ok(Box::new(Self {
-                    inner: Box::new(create_driver_task(0, std::ptr::null_mut())),
+                    inner: create_driver_task(0, std::ptr::null_mut()),
                 })),
                 Some(parameter) => {
                     let input_param = bin_deserialize::<EchoInput>(&parameter)?;
                     let driver_input = EmbeddedEchoInput::from(input_param);
                     let ptr = &raw const driver_input as *mut std::os::raw::c_void;
                     Ok(Box::new(Self {
-                        inner: Box::new(create_driver_task(0, ptr)),
+                        inner: create_driver_task(0, ptr),
                     }))
                 }
             }
@@ -125,7 +125,7 @@ impl Task<EmbeddedContext> for EmbeddedEchoTask {
         ctx: Arc<tokio::sync::RwLock<EmbeddedContext>>,
     ) -> Result<Option<Vec<u8>>, CuteError> {
         unsafe {
-            let mut res = execute_driver_task(0, self.inner.as_mut());
+            let mut res = execute_driver_task(0, &mut self.inner);
             let driver_output = EmbeddedEchoOutput::from(res);
             let output_data = EchoOutput::try_from(driver_output)?;
             if let Some(destroy_fn) = res.destroy {
@@ -137,7 +137,7 @@ impl Task<EmbeddedContext> for EmbeddedEchoTask {
     async fn destroy(&mut self) {
         unsafe {
             if let Some(destroy_fn) = self.inner.destroy {
-                destroy_fn(self.inner.as_mut());
+                destroy_fn(&mut self.inner);
             }
         }
     }

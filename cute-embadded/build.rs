@@ -16,9 +16,11 @@ fn main() {
 fn cute_generate() {
     let root_path  = PathBuf::from("cute-driver").join("headers");
     let out_folder = "src/ffi/generated";
-    let header_path = root_path.join("include");
     let bindings = bindgen::Builder::default()
-        .header(format!("{}/{}.h", header_path.to_str().unwrap(), HEADER_NAME))
+        .header(format!("{}/{}.h", root_path.to_str().unwrap(), HEADER_NAME))
+        .default_macro_constant_type(bindgen::MacroTypeVariation::Signed)
+        .clang_arg("-Icute-driver/include")
+        .impl_debug(true)
         .generate()
         .expect("Unable to generate bindings");
 
@@ -88,7 +90,7 @@ fn cute_linker() -> Result<(), std::io::Error> {
             .join("libs");
 
         println!("cargo:rustc-link-search=native={}/", lib_path.display());
-        println!("cargo:rustc-link-lib=static=cute_driver");
+        println!("cargo:rustc-link-lib=dylib=cute_driver");
         if let Err(_) = copy_dir_all(&lib_path, &target_dir) {
             Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "Failed to copy files!!!"))
         } else {

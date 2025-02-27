@@ -5,7 +5,7 @@ members = [
     "cute-cli",
     "cute-core",
     "cute-network",
-    "cute-embadded"]
+    "cute-embadded", "cute-database"]
 
 [workspace.package]
 edition = "2021"

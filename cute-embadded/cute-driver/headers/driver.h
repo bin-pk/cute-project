@@ -3,11 +3,11 @@
 //
 #pragma once
 
-#include "../common/include/type.h"
-#include "../common/include/error.h"
-#include "constants.h"
+#include "common/include/type.h"
+#include "common/include/error.h"
 #include "input.h"
 #include "output.h"
+#include "board_high/include/board_high.h"
 
 __BEGIN_DECLS
 /*

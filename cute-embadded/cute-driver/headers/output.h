@@ -4,6 +4,6 @@
 
 #pragma once
 
-#include "../board_high/include/output.h"
+#include "board_high/include/output.h"
 
 typedef echo_output cute_echo_output;
